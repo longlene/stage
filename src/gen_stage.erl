@@ -421,7 +421,7 @@ init_dispatcher(Opts) ->
 init_producer_consumer(Mod, Opts, State) ->
     case init_dispatcher(Opts) of
         {ok, DispatcherMod, DispatcherState, Opts1} ->
-            case stage_util:validate_list(Opts1, subscribeto, []) of
+            case stage_util:validate_list(Opts1, subscribe_to, []) of
                 {ok, SubscribeTo, Opts2} ->
                     case stage_util:validate_integer(Opts2, buffer_size, infinity, 0, infinity, true) of
                         {ok, BufferSize, Opts3} ->
