@@ -53,6 +53,7 @@
          cancel/3,
          call/2,
          call/3,
+         cast/2,
          reply/2,
          stop/1,
          stop/3,
