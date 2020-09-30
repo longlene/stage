@@ -115,13 +115,13 @@ add_demand(Counter, Pid, Ref, Selector, Demands) when is_integer(Counter) andals
     [{Counter, Pid, Ref, Selector} | Demands].
 
 pop_demand(Ref, Demands) ->
-    case lists:keytake(Ref, 2, Demands) of
+    case lists:keytake(Ref, 3, Demands) of
         {value, {Current, _Pid, Ref, Selector}, Rest} -> {Current, Selector, Rest};
         false -> {0, undefined, Demands}
     end.
 
 delete_demand(Ref, Demands) ->
-    lists:keydelete(Ref, 2, Demands).
+    lists:keydelete(Ref, 3, Demands).
 
 add_subscriber(SubscribedProcesses, Pid) ->
     maps:put(Pid, [], SubscribedProcesses).
