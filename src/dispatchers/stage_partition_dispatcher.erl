@@ -23,7 +23,7 @@ init(Opts) ->
         Partitions0 ->
             Partitions0
     end,
-    HashPresent = stage_keywrod:has_key(Opts, hash),
+    HashPresent = stage_keyword:has_key(Opts, hash),
     PartitionMap =
     lists:foldl(
       fun(Partition, Acc) ->
