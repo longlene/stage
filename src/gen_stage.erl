@@ -14,18 +14,7 @@
 %%% called "source" if it only produces items or called "sink" if it
 %%% only cousumes items.
 %%%
-%%% For example, imagine the stages below where A sends data to B
-%%% that sends data to C:
-%%%
-%%%     [A] -> [B] -> [C]
-%%%
-%%% we conclude that:
-%%%
-%%%   * A is only a producer (and therefore a source)
-
-
-
-
+%%% ---------------------------------------------------
 
 -behaviour(gen_server).
 
@@ -194,20 +183,21 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
 -callback format_status(normal | terminate, [{term(), term()} | (State :: term())]) ->
     Status :: term().
 
--optional_callbacks([
-                     % gen_stage
-                     handle_subscribe/4,
-                     handle_cancel/3,
-                     handle_demand/2,
-                     handle_events/3,
-                     % gen_server
-                     code_change/3,
-                     format_status/2,
-                     handle_call/3,
-                     handle_cast/2,
-                     handle_info/2,
-                     terminate/2
-                    ]).
+-optional_callbacks(
+   [
+    % gen_stage
+    handle_subscribe/4,
+    handle_cancel/3,
+    handle_demand/2,
+    handle_events/3,
+    % gen_server
+    code_change/3,
+    format_status/2,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2
+   ]).
 
 -spec start_link(module(), term()) -> on_start().
 start_link(Mod, Args) ->

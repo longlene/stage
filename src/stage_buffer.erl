@@ -1,12 +1,13 @@
 -module(stage_buffer).
 
--export([
-         new/1,
-         estimate_size/1,
-         take_count_or_until_permanent/2,
-         store_temporary/3,
-         store_permanent_unless_empty/2
-        ]).
+-export(
+   [
+    new/1,
+    estimate_size/1,
+    take_count_or_until_permanent/2,
+    store_temporary/3,
+    store_permanent_unless_empty/2
+   ]).
 
 new(Size) when Size > 0 ->
     {queue:new(), 0, init_wheel(Size)}.

@@ -62,10 +62,6 @@ which_children(Supervisor) ->
 count_children(Supervisor) ->
     call(Supervisor, count_children).
 
-
-
-
-
 call(Supervisor, Req) ->
     gen_stage:call(Supervisor, Req, infinity).
 
@@ -96,7 +92,7 @@ init({Mod, Args, Name}) ->
     end.
 
 init(State, [Child], Opts) when is_list(Opts) ->
-    {Strategy, Opts1} = stage_keyword:pop(Opts, strategy),
+    {Strategy, Opts1} = stage_keyword:pop(Opts, strategy, undefined),
     {MaxRestarts, Opts2} = stage_keyword:pop(Opts1, max_restarts, 3),
     {MaxSeconds, Opts3} = stage_keyword:pop(Opts2, max_seconds, 5),
     Template = normalize_template(Child),
@@ -497,5 +493,4 @@ normalize_template(#{id := Id, start := {M, _, _} = Start} = Child) ->
     };
 normalize_template({_, _, _, _, _, _} = Child) ->
     Child.
-
 

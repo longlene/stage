@@ -1,15 +1,16 @@
 -module(stage_util).
 
--export([
-         validate_list/3,
-         validate_in/4,
-         validate_integer/6,
-         validate_no_opts/1,
-         is_transient_shutdown/1,
-         self_name/0,
-         split_batches/5,
-         whereis_server/1
-        ]).
+-export(
+   [
+    validate_list/3,
+    validate_in/4,
+    validate_integer/6,
+    validate_no_opts/1,
+    is_transient_shutdown/1,
+    self_name/0,
+    split_batches/5,
+    whereis_server/1
+   ]).
 
 validate_list(Opts, Key, Default) ->
     {Value, NewOpts} = stage_keyword:pop(Opts, Key, Default),
