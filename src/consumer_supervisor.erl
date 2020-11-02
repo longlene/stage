@@ -18,7 +18,6 @@
 
 -type option() ::
 {registry, atom()}
-| {name, atom() | {global, term()} | {via, module(), term()}}
 | {strategy, supervisor:strategy()}
 | {max_restarts, non_neg_integer()}
 | {max_records, non_neg_integer()}
@@ -29,7 +28,6 @@
     | ignore.
 
 -record(state, {
-          name,
           mod,
           args,
           template,
@@ -42,23 +40,27 @@
           restarting = 0
          }).
 
--spec start_link(module(), any()) -> supervisor:on_start().
+-spec start_link(module(), any()) -> supervisor:startlink_ret().
 start_link(Mod, Args) ->
     gen_stage:start_link(?MODULE, {Mod, Args}, []).
 
--spec start_link(term(), module(), any(), [option()]) -> supervisor:on_start().
+-spec start_link(term(), module(), any(), [option()]) -> supervisor:startlink_ret().
 start_link(Name, Mod, Args, Opts) ->
     gen_stage:start_link(Name, ?MODULE, {Mod, Args}, Opts).
 
+-spec start_child(supervisor:sup_ref(), [term()]) -> supervisor:startchild_ret().
 start_child(Supervisor, Args) when is_list(Args) ->
     call(Supervisor, {start_child, Args}).
 
+-spec terminate_child(supervisor:sup_ref(), pid()) -> ok | {error, not_found}.
 terminate_child(Supervisor, Pid) when is_pid(Pid) ->
     call(Supervisor, {terminate_child, Pid}).
 
+-spec which_children(supervisor:sup_ref()) -> [{undefined, pid() | restarting, worker | supervisor, dynamic | [module()]}].
 which_children(Supervisor) ->
     call(Supervisor, which_children).
 
+-spec count_children(supervisor:sup_ref()) -> #{specs => non_neg_integer(), active => non_neg_integer(), supervisors => non_neg_integer(), workers => non_neg_integer()}.
 count_children(Supervisor) ->
     call(Supervisor, count_children).
 
@@ -67,18 +69,13 @@ call(Supervisor, Req) ->
 
 
 %% Callbacks
-init({Mod, Args, Name}) ->
+init({Mod, Args}) ->
     erlang:put('$initial_call', {supervisor, Mod, 1}),
     process_flag(trap_exit, true),
 
     case Mod:init(Args) of
         {ok, Children, Opts} ->
-            RealName =
-            case Name of
-                undefined -> {self(), Mod};
-                _ -> Name
-            end,
-            State = #state{mod = Mod, args = Args, name = RealName},
+            State = #state{mod = Mod, args = Args},
             case init(State, Children, Opts) of
                 {ok, NewState, NewOpts} ->
                     {consumer, NewState, NewOpts};
@@ -104,13 +101,13 @@ init(State, [Child], Opts) when is_list(Opts) ->
                 },
     {ok, NewState, Opts3};
 init(_State, [_], _Opts) ->
-    {error, "supervisor's init expects a keywords list as options"}.
+    {error, "supervisor's init expects a list as options"}.
 
 handle_subscribe(producer, Opts, {_, Ref} = From, #state{producers = Producers} = State) ->
     Max = stage_keyword:get(Opts, max_demand, 1000),
     Min = stage_keyword:get(Opts, min_demand, Max div 2),
     gen_stage:ask(From, Max),
-    NewProducers = maps:put(Ref, {From, 0, 0, Min, Max}, Producers),
+    NewProducers = Producers#{Ref => {From, 0, 0, Min, Max}},
     {manual, State#state{producers = NewProducers}}.
 
 handle_cancel(_, {_, Ref}, #state{producers = Producers} = State) ->
@@ -130,16 +127,16 @@ start_events([Extra | Extras], From, Child, Errors, Acc, State) ->
     NewArgs = Args ++ [Extra],
     case start_child(M, F, NewArgs) of
         {ok, Pid, _} when Restart =:= temporary ->
-            NewAcc = maps:put(Pid, [Ref], Acc),
+            NewAcc = Acc#{Pid => [Ref]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid, _} ->
-            NewAcc = maps:put(Pid, [Ref | Args], Acc),
+            NewAcc = Acc#{Pid => [Ref | Args]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid} when Restart =:= temporary ->
-            NewAcc = maps:put(Pid, [Ref], Acc),
+            NewAcc = Acc#{Pid => [Ref]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid} ->
-            NewAcc = maps:put(Pid, [Ref | Args], Acc),
+            NewAcc = Acc#{Pid => [Ref | Args]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         ignore ->
             start_events(Extras, From, Child, Errors + 1, Acc, State);
@@ -179,8 +176,8 @@ handle_call(which_children, _From, State) ->
     #state{children = Children, template = Child} = State,
     {_, _, _, _, Type, Mods} = Child,
     Reply =
-    lists:foreach(
-      fun({Pid, Args}) ->
+    maps:map(
+      fun(Pid, Args) ->
               MaybePid =
               case Args of
                   {restarting, _} -> restarting;
@@ -188,7 +185,7 @@ handle_call(which_children, _From, State) ->
               end,
               {undefined, MaybePid, Type, Mods}
       end, Children),
-    {reply, Reply, [], State};
+    {reply, maps:to_list(Reply), [], State};
 handle_call(count_children, _From, State) ->
     #state{children = Children, template = Child, restarting = Restarting} = State,
     {_, _, _, _, Type, _} = Child,
@@ -196,10 +193,8 @@ handle_call(count_children, _From, State) ->
     Active = Specs - Restarting,
     Reply =
     case Type of
-        supervisor ->
-            #{specs => 1, active => Active, workers => 0, supervisrs => Specs};
-        worker ->
-            #{specs => 1, active => Active, workers => Specs, supervisors => 0}
+        supervisor -> #{specs => 1, active => Active, workers => 0, supervisrs => Specs};
+        worker -> #{specs => 1, active => Active, workers => Specs, supervisors => 0}
     end,
     {reply, Reply, [], State};
 handle_call({terminate_child, Pid}, _From, #state{children = Children} = State) ->
@@ -207,7 +202,7 @@ handle_call({terminate_child, Pid}, _From, #state{children = Children} = State) 
         #{Pid := [Producer | _] = Info} ->
             ok = terminate_children(#{Pid => Info}, State),
             {reply, ok, [], delete_child_and_maybe_ask(Producer, Pid, State)};
-        #{Pid := {restarting, [Producer | _]} =Info} ->
+        #{Pid := {restarting, [Producer | _]} = Info} ->
             ok = terminate_children(#{Pid => Info}, State),
             {reply, ok, [], delete_child_and_maybe_ask(Producer, Pid, State)};
         #{} ->
@@ -240,7 +235,7 @@ start_child(M, F, A) ->
     end.
 
 save_child(temporary, Producer, Pid, _, #state{children = Children} = State) ->
-    State#state{children = maps:put(Pid, [Producer], Children)};
+    State#state{children = Children#{Pid => [Producer]}};
 save_child(_, Producer, Pid, Args, #state{children = Children} = State) ->
     State#state{children = maps:put(Pid, [Producer | Args], Children)}.
 
@@ -298,34 +293,44 @@ terminate_children(Children, #state{template = Template} = State) ->
     Stacks =
     case Shutdown of
         brutal_kill ->
-            maps:map(fun(Pid, _) -> exit(Pid, kill) end, Pids),
+            maps:map(
+              fun(Pid, _) ->
+                      exit(Pid, kill)
+              end, Pids),
             wait_children(Restart, Shutdown, Pids, Size, undefined, Stacks);
         infinity ->
-            maps:map(fun(Pid, _) -> exit(Pid, shutdown) end, Pids),
+            maps:map(
+              fun(Pid, _) ->
+                      exit(Pid, shutdown)
+              end, Pids),
             wait_children(Restart, Shutdown, Pids, Size, undefined, Stacks);
         Time ->
-            maps:map(fun(Pid, _) -> exit(Pid, shutdown) end, Pids),
+            maps:map(
+              fun(Pid, _) ->
+                      exit(Pid, shutdown)
+              end, Pids),
             Timer = erlang:start_timer(Time, self(), kill),
             wait_children(Restart, Shutdown, Pids, Size, Timer, Stacks)
     end,
     lists:foreach(
       fun({Pid, Reason}) ->
               report_error(shutdown_error, Reason, Pid, undefined, Template, State)
-      end, Stacks).
+      end, Stacks),
+    ok.
 
 monitor_children(Children, Restart) ->
-    lists:foldl(
+    maps:fold(
       fun
-          ({_, {restarting, _}}, {Pids, Stacks}) ->
+          (_, {restarting, _}, {Pids, Stacks}) ->
               {Pids, Stacks};
-      ({Pid, _}, {Pids, Stacks}) ->
+          (Pid, _, {Pids, Stacks}) ->
               case monitor_child(Pid) of
                   ok ->
-                      {maps:put(Pid, true, Pids), Stacks};
+                      {Pids#{Pid => true}, Stacks};
                   {error, normal} when Restart =/= permanent ->
                       {Pids, Stacks};
                   {error, Reason} ->
-                      {Pids, maps:put(Pid, Reason, Stacks)}
+                      {Pids, Stacks#{Pid => Reason}}
               end
       end, {#{}, #{}}, Children).
 
@@ -459,14 +464,12 @@ restart_child(Pid, #state{children = Children} = State) ->
         #{Pid := {restarting, _}} ->
             State;
         #{Pid := Info} ->
-            NewChildren = maps:put(Pid, {restarting, Info}, Children),
-            State#state{children = NewChildren}
+            State#state{children = Children#{Pid => {restarting, Info}}}
     end.
 
-report_error(Error, Reason, Pid, Args, Child, #state{name = Name}) ->
+report_error(Error, Reason, Pid, Args, Child, _State) ->
     error_logger:error_report([
                             supervisor_report,
-                            {supervisor, Name},
                             {errorContext, Error},
                             {reason, Reason},
                             {offender, extract_child(Pid, Args, Child)}
