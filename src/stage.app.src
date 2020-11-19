@@ -1,5 +1,5 @@
 {application, stage,
- [{description, "An OTP library"},
+ [{description, "gen_stage for Erlang"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications,
