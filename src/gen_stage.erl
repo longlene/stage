@@ -74,7 +74,7 @@
 
 -type on_start() :: {ok, pid()} | ignore | {error, {already_started, pid()} | term()}.
 
--type name() :: atom() | {global, term()} | {via, module(), term()}.
+-type name() :: {local, atom()} | {global, term()} | {via, module(), term()}.
 
 -type options() :: [option()].
 -type option() ::
