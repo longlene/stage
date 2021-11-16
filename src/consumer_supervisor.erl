@@ -104,8 +104,8 @@ init(_State, [_], _Opts) ->
     {error, "supervisor's init expects a list as options"}.
 
 handle_subscribe(producer, Opts, {_, Ref} = From, #state{producers = Producers} = State) ->
-    Max = stage_keyword:get(Opts, max_demand, 1000),
-    Min = stage_keyword:get(Opts, min_demand, Max div 2),
+    Max = proplists:get_value(max_demand, Opts, 1000),
+    Min = proplists:get_value(min_demand, Opts, Max div 2),
     gen_stage:ask(From, Max),
     NewProducers = Producers#{Ref => {From, 0, 0, Min, Max}},
     {manual, State#state{producers = NewProducers}}.
