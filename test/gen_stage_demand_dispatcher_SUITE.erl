@@ -1,9 +1,6 @@
 -module(gen_stage_demand_dispatcher_SUITE).
 
--include_lib("common_test/include/ct.hrl").
--include_lib("eunit/include/eunit.hrl").
-
--define(assertReceive(Guard), receive Guard -> true end).
+-include("test_helper.hrl").
 
 -export([all/0]).
 -export([

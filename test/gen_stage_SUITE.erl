@@ -1,10 +1,6 @@
 -module(gen_stage_SUITE).
 
--include_lib("common_test/include/ct.hrl").
--include_lib("eunit/include/eunit.hrl").
-
--define(assertReceive(Guard), receive Guard -> true end).
--define(refuteReceived(Guard), receive Guard -> true after 0 -> false end).
+-include("test_helper.hrl").
 
 -export([all/0]).
 -export([
@@ -15,6 +11,8 @@
          with_shared_broadcast_demand/1,
          with_shared_broadcast_demand_and_synchronizer_subscriber/1,
          with_80_percent_min_demand_with_init_subscription/1,
+         with_20_percent_min_demand_with_init_subscription/1,
+         with_80_percent_min_demand_with_late_subscription/1,
 
          handle_info/1,
          terminate/1
@@ -29,6 +27,8 @@ all() ->
      with_shared_broadcast_demand,
      with_shared_broadcast_demand_and_synchronizer_subscriber,
      with_80_percent_min_demand_with_init_subscription,
+     with_20_percent_min_demand_with_init_subscription,
+     with_80_percent_min_demand_with_late_subscription,
 
      handle_info,
      terminate
@@ -111,8 +111,56 @@ with_80_percent_min_demand_with_init_subscription(_Config) ->
     {ok, _} = forwarder:start_link({consumer, self(), [{subscribe_to, [{Doubler, [{max_demand, 100}, {min_demand, 50}]}]}]}),
     Batch = lists:seq(0, 19),
     ?assertReceive({producer_consumed, Batch}),
-    Batch1 = lists:flatmap(fun(I) -> [I, I] end, Batch),
-    ?assertReceive({consumed, Batch1}).
+    Batch1 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(0, 19)),
+    ?assertReceive({consumed, Batch1}),
+    Batch2 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(20, 39)),
+    ?assertReceive({consumed, Batch2}),
+    Batch3 = lists:seq(100, 119),
+    ?assertReceive({producer_consumed, Batch3}),
+    Batch4 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(120, 124)),
+    ?assertReceive({consumed, Batch4}),
+    Batch5 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(125, 139)),
+    ?assertReceive({consumed, Batch5}).
+
+with_20_percent_min_demand_with_init_subscription(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    {ok, Doubler} =
+        doubler:start_link(
+          {producer_consumer, self(),
+          [{subscribe_to, [{Producer, [{max_demand, 100}, {min_demand, 20}]}]}]}),
+    {ok, _} = forwarder:start_link({consumer, self(), [{subscribe_to, [{Doubler, [{max_demand, 100}, {min_demand, 50}]}]}]}),
+    Batch = lists:seq(0, 79),
+    ?assertReceive({producer_consumed, Batch}),
+    Batch1 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(0, 24)),
+    ?assertReceive({consumed, Batch1}),
+    Batch2 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(25, 49)),
+    ?assertReceive({consumed, Batch2}),
+    Batch3 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(50, 74)),
+    ?assertReceive({consumed, Batch3}),
+    Batch4 = lists:seq(100, 179),
+    ?assertReceive({producer_consumed, Batch4}).
+
+with_80_percent_min_demand_with_late_subscription(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    {ok, Doubler} = doubler:start_link({producer_consumer, self()}),
+    {ok, Consumer} = forwarder:start_link({consumer, self()}),
+
+    gen_stage:sync_subscribe(Consumer, [{to, Doubler}, {min_demand, 50}, {max_demand, 100}]),
+    gen_stage:sync_subscribe(Doubler, [{to, Producer}, {min_demand, 80}, {max_demand, 100}]),
+
+    Batch = lists:seq(0, 19),
+    ?assertReceive({producer_consumed, Batch}),
+    Batch1 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(0, 19)),
+    ?assertReceive({consumed, Batch1}),
+    Batch2 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(20, 39)),
+    ?assertReceive({consumed, Batch2}),
+
+    Batch3 = lists:seq(100, 119),
+    ?assertReceive({producer_consumed, Batch3}),
+    Batch4 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(120, 124)),
+    ?assertReceive({consumed, Batch4}),
+    Batch5 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(125, 139)),
+    ?assertReceive({consumed, Batch5}).
 
 % TODO
 
