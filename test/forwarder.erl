@@ -1,8 +1,12 @@
 -module(forwarder).
+%% @doc
+%% Forwards messages to the given process.
 
 -behaviour(gen_stage).
 
--export([start_link/1, ask/3]).
+-export([start_link/1,
+         start_link/2,
+         ask/3]).
 
 -export([
          init/1,
@@ -16,7 +20,10 @@
 
 
 start_link(Init) ->
-    gen_stage:start_link(?MODULE, Init, []).
+    start_link(Init, []).
+
+start_link(Init, Opts) ->
+    gen_stage:start_link(?MODULE, Init, Opts).
 
 ask(Forwarder, To, N) ->
     gen_stage:call(Forwarder, {ask, To, N}).
@@ -29,7 +36,7 @@ handle_call({ask, To, N}, _, State) ->
     {reply, ok, [], State}.
 
 handle_subscribe(producer, Opts, From, Recipient) ->
-    erlang:send(Recipient, {consumer_subscribed, From}),
+    Recipient ! {consumer_subscribed, From},
     {proplists:get_value(consumer_demand, Opts, automatic), Recipient}.
 
 handle_info(Other, Recipient) ->
@@ -37,12 +44,12 @@ handle_info(Other, Recipient) ->
     {noreply, [], Recipient}.
 
 handle_events(Events, _From, Recipient) ->
-    erlang:send(Recipient, {consumed, Events}),
+    Recipient ! {consumed, Events},
     {noreply, [], Recipient}.
 
 handle_cancel(Reason, From, Recipient) ->
-    erlang:send(Recipient, {consumer_cancelled, From, Reason}),
+    Recipient ! {consumer_cancelled, From, Reason},
     {noreply, [], Recipient}.
 
 terminate(Reason, State) ->
-    erlang:send(State, {terminated, Reason}).
+    State ! {terminated, Reason}.

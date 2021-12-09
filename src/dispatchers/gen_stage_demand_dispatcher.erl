@@ -1,6 +1,6 @@
--module(stage_demand_dispatcher).
+-module(gen_stage_demand_dispatcher).
 
--behavior(stage_dispatcher).
+-behavior(gen_stage_dispatcher).
 
 -export([
          init/1,

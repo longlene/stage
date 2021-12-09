@@ -1,6 +1,6 @@
--module(demand_producer).
+-module(discarder).
 %% @doc
-%% A producer that tracks demand requests.
+%% Discards all events.
 %% @end
 
 -behavior(gen_stage).
@@ -9,7 +9,7 @@
          start_link/2]).
 
 -export([init/1,
-         handle_demand/2 ]).
+         handle_events/3]).
 
 start_link(Init) ->
     start_link(Init, []).
@@ -21,6 +21,7 @@ start_link(Init, Opts) ->
 init(Init) ->
     Init.
 
-handle_demand(Demand, PastDemands) ->
-    {noreply, [Demand], [Demand | PastDemands]}.
+handle_events(Events, _From, Recipient) ->
+    Recipient ! {discarded, Events},
+    {noreply, [], Recipient}.
 

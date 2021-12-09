@@ -1,6 +1,6 @@
--module(stage_broadcast_dispatcher).
+-module(gen_stage_broadcast_dispatcher).
 
--behavior(stage_dispatcher).
+-behavior(gen_stage_dispatcher).
 
 -export([
          init/1,

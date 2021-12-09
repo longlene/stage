@@ -1,6 +1,6 @@
--module(stage_partition_dispatcher).
+-module(gen_stage_partition_dispatcher).
 
--behavior(stage_dispatcher).
+-behavior(gen_stage_dispatcher).
 
 -export([
          init/1,
@@ -15,15 +15,12 @@
 
 init(Opts) ->
     Partitions =
-    case proplists:get_value(partitions, Opts) of
-        undefined ->
-            throw("partitions option is required when using partition dispatcher");
-        Partition when is_integer(Partition) ->
-            lists:seq(0, Partition - 1);
-        Partitions0 ->
-            Partitions0
-    end,
-    HashPresent = stage_keyword:has_key(Opts, hash),
+        case proplists:get_value(partitions, Opts) of
+            undefined -> throw("partitions option is required when using partition dispatcher");
+            Partition when is_integer(Partition) -> lists:seq(0, Partition - 1);
+            Partitions0 -> Partitions0
+        end,
+    HashPresent = proplists:is_defined(hash, Opts),
     PartitionMap =
     lists:foldl(
       fun(Partition, Acc) ->
@@ -34,10 +31,10 @@ init(Opts) ->
                       ok
               end,
               erlang:put(Partition, []),
-              maps:put(Partition, ?INIT, Acc)
+              Acc#{Partition => ?INIT}
       end, #{}, Partitions),
     Size = map_size(PartitionMap),
-    Hash = stage_keyword:get(Opts, hash, fun(Key) -> hash(Key, Size) end),
+    Hash = proplists:get_value(hash, Opts, fun(Key) -> hash(Key, Size) end),
     {ok, {make_ref(), Hash, 0, 0, PartitionMap, #{}, #{}}}.
 
 hash(Event, Range) ->

@@ -1,4 +1,4 @@
--module(stage_broadcast_dispatcher_SUITE).
+-module(gen_stage_broadcast_dispatcher_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -22,7 +22,7 @@ all() ->
     ].
 
 dispatcher(Opts) ->
-    {ok, {[], 0, _Subscribers} = State} = stage_broadcast_dispatcher:init(Opts),
+    {ok, {[], 0, _Subscribers} = State} = gen_stage_broadcast_dispatcher:init(Opts),
     State.
 
 subscribes_and_cancels(_Config) ->
@@ -31,10 +31,10 @@ subscribes_and_cancels(_Config) ->
     Disp = dispatcher([]),
     ExpectedSubscribers = #{Pid => []},
 
-    {ok, 0, Disp1} = stage_broadcast_dispatcher:subscribe([], {Pid, Ref}, Disp),
+    {ok, 0, Disp1} = gen_stage_broadcast_dispatcher:subscribe([], {Pid, Ref}, Disp),
     ?assertEqual(Disp1, {[{0, Pid, Ref, undefined}], 0, ExpectedSubscribers}),
 
-    {ok, 0, Disp2} = stage_broadcast_dispatcher:cancel({Pid, Ref}, Disp1),
+    {ok, 0, Disp2} = gen_stage_broadcast_dispatcher:cancel({Pid, Ref}, Disp1),
     ?assertEqual(Disp2, {[], 0, #{}}).
 
 multiple_subscriptions_with_early_demand(_Config) ->
@@ -45,23 +45,23 @@ multiple_subscriptions_with_early_demand(_Config) ->
     Disp = dispatcher([]),
 
     ExpectedSubscribers = #{Pid1 => []},
-    {ok, 0, Disp1} = stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
+    {ok, 0, Disp1} = gen_stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
     ?assertEqual(Disp1, {[{0, Pid1, Ref1, undefined}], 0, ExpectedSubscribers}),
 
-    {ok, 10, Disp2} = stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp1),
+    {ok, 10, Disp2} = gen_stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp1),
     ?assertEqual(Disp2, {[{0, Pid1, Ref1, undefined}], 10, ExpectedSubscribers}),
 
     ExpectedSubscribers1 = ExpectedSubscribers#{Pid2 => []},
 
-    {ok, 0, Disp3} = stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp2),
+    {ok, 0, Disp3} = gen_stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp2),
     ?assertEqual(Disp3, {[{-10, Pid2, Ref2, undefined}, {0, Pid1, Ref1, undefined}], 10, ExpectedSubscribers1}),
 
     ExpectedSubscribers2 = maps:remove(Pid1, ExpectedSubscribers1),
 
-    {ok, 0, Disp4} = stage_broadcast_dispatcher:cancel({Pid1, Ref1}, Disp3),
+    {ok, 0, Disp4} = gen_stage_broadcast_dispatcher:cancel({Pid1, Ref1}, Disp3),
     ?assertEqual(Disp4, {[{-10, Pid2, Ref2, undefined}], 10, ExpectedSubscribers2}),
 
-    {ok, 0, Disp5} = stage_broadcast_dispatcher:ask(10, {Pid2, Ref2}, Disp4),
+    {ok, 0, Disp5} = gen_stage_broadcast_dispatcher:ask(10, {Pid2, Ref2}, Disp4),
     ?assertEqual(Disp5, {[{0, Pid2, Ref2, undefined}], 10, ExpectedSubscribers2}).
 
 multiple_subscriptions_with_late_demand(_Config) ->
@@ -73,23 +73,23 @@ multiple_subscriptions_with_late_demand(_Config) ->
 
     ExpectedSubscribers = #{Pid1 => []},
 
-    {ok, 0, Disp1} = stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
+    {ok, 0, Disp1} = gen_stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
     ?assertEqual(Disp1, {[{0, Pid1, Ref1, undefined}], 0, ExpectedSubscribers}),
 
     ExpectedSubscribers1 = ExpectedSubscribers#{Pid2 => []},
 
-    {ok, 0, Disp2} = stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
+    {ok, 0, Disp2} = gen_stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
     ?assertEqual(Disp2, {[{0, Pid2, Ref2, undefined}, {0, Pid1, Ref1, undefined}], 0, ExpectedSubscribers1}),
 
-    {ok, 0, Disp3} = stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp2),
+    {ok, 0, Disp3} = gen_stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp2),
     ?assertEqual(Disp3, {[{10, Pid1, Ref1, undefined}, {0, Pid2, Ref2, undefined}], 0, ExpectedSubscribers1}),
 
     ExpectedSubscribers2 = maps:remove(Pid2, ExpectedSubscribers1),
 
-    {ok, 10, Disp4} = stage_broadcast_dispatcher:cancel({Pid2, Ref2}, Disp3),
+    {ok, 10, Disp4} = gen_stage_broadcast_dispatcher:cancel({Pid2, Ref2}, Disp3),
     ?assertEqual(Disp4, {[{0, Pid1, Ref1, undefined}], 10, ExpectedSubscribers2}),
 
-    {ok, 10, Disp5} = stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp4),
+    {ok, 10, Disp5} = gen_stage_broadcast_dispatcher:ask(10, {Pid1, Ref1}, Disp4),
     ?assertEqual(Disp5, {[{0, Pid1, Ref1, undefined}], 20, ExpectedSubscribers2}).
 
 %subscribes_asks_and_dispatches_to_multiple_consumers(_Config) ->
@@ -101,40 +101,40 @@ multiple_subscriptions_with_late_demand(_Config) ->
 %    Ref3 = make_ref(),
 %    Disp = dispatcher([]),
 %
-%    {ok, 0, Disp1} = stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
-%    {ok, 0, Disp2} = stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
+%    {ok, 0, Disp1} = gen_stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
+%    {ok, 0, Disp2} = gen_stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
 %
-%    {ok, 0, Disp3} = stage_broadcast_dispatcher:ask(3, {Pid1, Ref1}, Disp2),
-%    {ok, 2, Disp4} = stage_broadcast_dispatcher:ask(2, {Pid2, Ref2}, Disp3),
+%    {ok, 0, Disp3} = gen_stage_broadcast_dispatcher:ask(3, {Pid1, Ref1}, Disp2),
+%    {ok, 2, Disp4} = gen_stage_broadcast_dispatcher:ask(2, {Pid2, Ref2}, Disp3),
 %
 %    ExpectedSubscribers = #{Pid1 => [], Pid2 => []},
 %
 %    ?assertEqual(Disp4, {[{0, Pid2, Ref2, undefined}, {1, Pid1, Ref1, undefined}], 2, ExpectedSubscribers}),
 %
 %    % One batch fits all
-%    {ok, [], Disp5} = stage_broadcast_dispatcher:dispatch([a, b], 2, Disp4),
+%    {ok, [], Disp5} = gen_stage_broadcast_dispatcher:dispatch([a, b], 2, Disp4),
 %    ?assertEqual(Disp5, {[{0, Pid2, Ref2, undefined}, {1, Pid1, Ref1, undefined}], 0, ExpectedSubscribers}),
 %
 %    ?assertReceive({'$gen_consumer', {_, Ref1}, [a, b]),
 %    ?assertReceive({'$gen_consumer', {_, Ref2}, [a, b]),
 %
 %    % A batch with left-over
-%    {ok, 1, Disp6} = stage_broadcast_dispatcher:ask(2, {Pid2, Ref2}, Disp5),
+%    {ok, 1, Disp6} = gen_stage_broadcast_dispatcher:ask(2, {Pid2, Ref2}, Disp5),
 %
-%    {ok, [d], Disp7} = stage_broadcast_dispatcher:dispatch([c, d], 2, Disp6),
+%    {ok, [d], Disp7} = gen_stage_broadcast_dispatcher:dispatch([c, d], 2, Disp6),
 %    ?assertEqual(Disp7, {[{1, Pid2, Ref2, undefined}, {0, Pid1, Ref1, undefined}], 0, ExpectedSubscribers),
 %    ?assertReceive({'$gen_consumer', {_, Ref1}, [c]),
 %    ?assertReceive({'$gen_consumer', {_, Ref2}, [c]),
 %
 %    % A batch with no demand
-%    {ok, [d], Disp8} = stage_broadcast_dispatcher:dispatch([d], 1, Disp7),
+%    {ok, [d], Disp8} = gen_stage_broadcast_dispatcher:dispatch([d], 1, Disp7),
 %    ?assertEqual(Disp8, {[{1, Pid2, Ref2, undefined}, {0, Pid1, Ref1, undefined}], 0, ExpectedSubscribers}),
 %    refute_receive({'$gen_consumer', {_, _}, _}),
 %
 %    % Add a late subscriber
-%    {ok, 1, Disp9} = stage_broadcast_dispatcher:ask(1, {Pid1, Ref1}, Disp8),
-%    {ok, 0, Disp10} = stage_broadcast_dispatcher:subscribe([], {Pid3, Ref3}, Disp9),
-%    {ok, [e], Disp11} = stage_broadcast_dispatcher:dispatch([d, e], 2, Disp10)
+%    {ok, 1, Disp9} = gen_stage_broadcast_dispatcher:ask(1, {Pid1, Ref1}, Disp8),
+%    {ok, 0, Disp10} = gen_stage_broadcast_dispatcher:subscribe([], {Pid3, Ref3}, Disp9),
+%    {ok, [e], Disp11} = gen_stage_broadcast_dispatcher:dispatch([d, e], 2, Disp10)
 
 % TODO
 
@@ -145,11 +145,11 @@ delivers_info_to_current_process(_Config) ->
     Ref2 = make_ref(),
     Disp = dispatcher([]),
 
-    {ok, 0, Disp1} = stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
-    {ok, 0, Disp2} = stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
-    {ok, 0, Disp3} = stage_broadcast_dispatcher:ask(3, {Pid1, Ref1}, Disp2),
+    {ok, 0, Disp1} = gen_stage_broadcast_dispatcher:subscribe([], {Pid1, Ref1}, Disp),
+    {ok, 0, Disp2} = gen_stage_broadcast_dispatcher:subscribe([], {Pid2, Ref2}, Disp1),
+    {ok, 0, Disp3} = gen_stage_broadcast_dispatcher:ask(3, {Pid1, Ref1}, Disp2),
 
-    {ok, NotifyDisp} = stage_broadcast_dispatcher:info(hello, Disp3),
+    {ok, NotifyDisp} = gen_stage_broadcast_dispatcher:info(hello, Disp3),
     ?assertEqual(Disp3, NotifyDisp),
     ?assertReceive(hello).
 

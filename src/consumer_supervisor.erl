@@ -40,6 +40,24 @@
           restarting = 0
          }).
 
+%% @doc
+%% Starts a supervisor with the given children.
+%%
+%% A strategy is required to be given as an option. Furthermore,
+%% the `max_restarts`, `max_seconds`, and `subscribe_to`
+%% values can be configured as described in the documentation for the
+%% `init/1` callback.
+%%
+%% The options can also be used to register a supervisor name.
+%% The supported values are described under the "Name Registration"
+%% section in the `gen_server` module docs.
+%% The child processes specified in `children` will be started by appending
+%% the event to process to the existing function arguments in the child specification.
+%%
+%% Note that the consumer supervisor is linked to the parent process
+%% and will exit not only on crashes but also if the parent process
+%% exits with `normal` reason.
+%% @end
 -spec start_link(module(), any()) -> supervisor:startlink_ret().
 start_link(Mod, Args) ->
     gen_stage:start_link(?MODULE, {Mod, Args}, []).
@@ -89,9 +107,14 @@ init({Mod, Args}) ->
     end.
 
 init(State, [Child], Opts) when is_list(Opts) ->
-    {Strategy, Opts1} = stage_keyword:pop(Opts, strategy, undefined),
-    {MaxRestarts, Opts2} = stage_keyword:pop(Opts1, max_restarts, 3),
-    {MaxSeconds, Opts3} = stage_keyword:pop(Opts2, max_seconds, 5),
+    Strategy = proplists:get_value(strategy, Opts),
+    MaxRestarts = proplists:get_value(max_restarts, Opts, 3),
+    MaxSeconds = proplists:get_value(max_seconds, Opts, 5),
+    NewOpts =
+        lists:foldl(
+            fun(Key, Acc) ->
+                    proplists:delete(Key, Acc)
+            end, Opts, [strategy, max_restarts, max_seconds]),
     Template = normalize_template(Child),
     NewState = State#state{
                  template = Template,
@@ -99,7 +122,7 @@ init(State, [Child], Opts) when is_list(Opts) ->
                  max_restarts = MaxRestarts,
                  max_seconds = MaxSeconds
                 },
-    {ok, NewState, Opts3};
+    {ok, NewState, NewOpts};
 init(_State, [_], _Opts) ->
     {error, "supervisor's init expects a list as options"}.
 

@@ -493,9 +493,13 @@ sync_resubscribe(Stage, SubscriptionTag, Reason, Opts, Timeout) ->
     sync_subscribe(Stage, {SubscriptionTag, Reason}, Opts, Timeout).
 
 sync_subscribe(Stage, Cancel, Opts, Timeout) ->
-    Fun = fun() -> throw(iolist_to_binary(io_lib:format("expected to argument in sync_(re)subscribe", []))) end,
-    {To, NewOpts} = stage_keyword:pop_lazy(Opts, to, Fun),
-    call(Stage, {'$subscribe', Cancel, To, NewOpts}, Timeout).
+    case proplists:lookup(to, Opts) of
+        none ->
+            throw(iolist_to_binary(io_lib:format("expected to argument in sync_(re)subscribe", [])));
+        {to, To} ->
+            NewOpts = proplists:delete(to, Opts),
+            call(Stage, {'$subscribe', Cancel, To, NewOpts}, Timeout)
+    end.
 
 %% @doc
 %% Asks the consumer to subscribe to the given producer asynchronously.
@@ -532,9 +536,13 @@ async_resubscribe(Stage, SubscriptionTag, Reason, Opts) ->
     async_subscribe(Stage, {SubscriptionTag, Reason}, Opts).
 
 async_subscribe(Stage, Cancel, Opts) ->
-    Fun = fun() -> throw(iolist_to_binary(io_lib:format("expected to argument in async_(re)subscribe", []))) end,
-    {To, NewOpts} = stage_keyword:pop_lazy(Opts, to, Fun),
-    cast(Stage, {'$subscribe', Cancel, To, NewOpts}).
+    case proplists:lookup(to, Opts) of
+        none ->
+            throw(iolist_to_binary(io_lib:format("expected to argument in async_(re)subscribe", [])));
+        {to, To} ->
+            NewOpts = proplists:delete(to, Opts),
+            cast(Stage, {'$subscribe', Cancel, To, NewOpts})
+    end.
 
 %% @doc
 %% Asks the given demand to the producer.
@@ -739,7 +747,7 @@ init_producer(Mod, Opts, State) ->
                                                        mod = Mod,
                                                        state = State,
                                                        type = producer,
-                                                       buffer = stage_buffer:new(BufferSize),
+                                                       buffer = gen_stage_buffer:new(BufferSize),
                                                        buffer_keep = BufferKeep,
                                                        events = Events,
                                                        dispatcher_mod = DispatcherMod,
@@ -763,14 +771,16 @@ init_producer(Mod, Opts, State) ->
     end.
 
 init_dispatcher(Opts) ->
-    case stage_keyword:pop(Opts, dispatcher, stage_demand_dispatcher) of
-        {Dispatcher, NewOpts} when is_atom(Dispatcher) ->
+    case proplists:get_value(dispatcher, Opts, gen_stage_demand_dispatcher) of
+        Dispatcher when is_atom(Dispatcher) ->
             {ok, DispatcherState} = Dispatcher:init([]),
+            NewOpts = proplists:delete(dispatcher, Opts),
             {ok, Dispatcher, DispatcherState, NewOpts};
-        {{Dispatcher, DispatcherOpts}, NewOpts} when is_atom(Dispatcher), is_list(DispatcherOpts) ->
+        {Dispatcher, DispatcherOpts} when is_atom(Dispatcher), is_list(DispatcherOpts) ->
             {ok, DispatcherState} = Dispatcher:init(DispatcherOpts),
+            NewOpts = proplists:delete(dispatcher, Opts),
             {ok, Dispatcher, DispatcherState, NewOpts};
-        {Other, _NewOpts} ->
+        Other ->
             {error, io_lib:format("expected dispatcher to be an atom or a {atom(), list()}, got ~p", [Other])}
     end.
 
@@ -789,7 +799,7 @@ init_producer_consumer(Mod, Opts, State) ->
                                                        mod = Mod,
                                                        state = State,
                                                        type = producer_consumer,
-                                                       buffer = stage_buffer:new(BufferSize),
+                                                       buffer = gen_stage_buffer:new(BufferSize),
                                                        buffer_keep = BufferKeep,
                                                        events = {queue:new(), 0},
                                                        dispatcher_mod = DispatcherMod,
@@ -1055,6 +1065,12 @@ maybe_producer_cancel({Ref, Reason}, Stage) ->
 maybe_producer_cancel(undefined, Stage) ->
     {noreply, Stage}.
 
+maybe_format_discarded(Mod, Excess, State) ->
+    case erlang:function_exported(Mod, format_discarded, 2) of
+        true -> Mod:format_discarded(Excess, State);
+        false -> true
+    end.
+
 producer_cancel(Ref, Kind, Reason, Stage) ->
     case maps:take(Ref, Stage#stage.consumers) of
         error ->
@@ -1116,7 +1132,7 @@ dispatch_events(Events, Len, Stage) ->
     buffer_events(Events1, NewStage).
 
 take_from_buffer(Counter, #stage{buffer = Buffer} = Stage) ->
-    case stage_buffer:take_count_or_until_permanent(Buffer, Counter) of
+    case gen_stage_buffer:take_count_or_until_permanent(Buffer, Counter) of
         empty ->
             {ok, Counter, Stage};
         {ok, NewBuffer, NewCounter, Temps, Perms} ->
@@ -1127,13 +1143,18 @@ take_from_buffer(Counter, #stage{buffer = Buffer} = Stage) ->
 
 buffer_events([], Stage) ->
     Stage;
-buffer_events(Events, #stage{buffer = Buffer, buffer_keep = Keep} = Stage) ->
-    {NewBuffer, Excess, Perms} = stage_buffer:store_temporary(Buffer, Events, Keep),
+buffer_events(Events, #stage{mod = Mod, buffer = Buffer, buffer_keep = Keep, state = State} = Stage) ->
+    {NewBuffer, Excess, Perms} = gen_stage_buffer:store_temporary(Buffer, Events, Keep),
     case Excess of
         0 -> ok;
         _ ->
-            ErrMsg = "stage producer ~tp has discarded ~tp events from buffer",
-            error_logger:warning_msg(ErrMsg, [self_name(), Excess])
+            case maybe_format_discarded(Mod, Excess, State) of
+                true ->
+                    ErrMsg = "stage producer ~tp has discarded ~tp events from buffer",
+                    error_logger:warning_msg(ErrMsg, [self_name(), Excess]);
+                false ->
+                    ok
+            end
     end,
     lists:foldl(fun dispatch_info/2, Stage#stage{buffer = NewBuffer}, Perms).
 
@@ -1142,7 +1163,7 @@ producer_estimate_buffered_count(#stage{type = consumer} = Stage) ->
     error_logger:error_msg(ErrorMsg, [self_name()]),
     {reply, 0, Stage};
 producer_estimate_buffered_count(#stage{buffer = Buffer} = Stage) ->
-    {reply, stage_buffer:estimate_size(Buffer), Stage}.
+    {reply, gen_stage_buffer:estimate_size(Buffer), Stage}.
 
 %% Info helpers
 producer_info(Msg, #stage{type = consumer} = Stage) ->
@@ -1161,7 +1182,7 @@ producer_info(Msg, #stage{type = produer} = Stage) ->
     {reply, ok, buffer_or_dispatch_info(Msg, Stage)}.
 
 buffer_or_dispatch_info(Msg, #stage{buffer = Buffer} = Stage) ->
-    case stage_buffer:store_permanent_unless_empty(Buffer, Msg) of
+    case gen_stage_buffer:store_permanent_unless_empty(Buffer, Msg) of
         empty -> dispatch_info(Msg, Stage);
         {ok, NewBuffer} -> Stage#stage{buffer = NewBuffer}
     end.
@@ -1361,22 +1382,26 @@ take_pc_events(Queue, Counter, Stage) ->
 
 
 validate_list(Opts, Key, Default) ->
-    {Value, NewOpts} = stage_keyword:pop(Opts, Key, Default),
-
-    if
-        is_list(Value) -> {ok, Value, NewOpts};
-        true -> {error, io_lib:format("expected ~p to be a list, got: ~p", [Key, Value])}
+    case proplists:get_value(Key, Opts, Default) of
+        Value when is_list(Value) ->
+            NewOpts = proplists:delete(Key, Opts),
+            {ok, Value, NewOpts};
+        Value ->
+            {error, io_lib:format("expected ~p to be a list, got: ~p", [Key, Value])}
     end.
 
 validate_in(Opts, Key, Default, Values) ->
-    {Value, NewOpts} = stage_keyword:pop(Opts, Key, Default),
+    Value = proplists:get_value(Key, Opts, Default),
     case lists:member(Value, Values) of
-        true -> {ok, Value, NewOpts};
-        false -> {error, io_lib:format("expected ~p to be one of ~p, got: ~p", [Key, Values, Value])}
+        true ->
+            NewOpts = proplists:delete(Key, Opts),
+            {ok, Value, NewOpts};
+        false ->
+            {error, io_lib:format("expected ~p to be one of ~p, got: ~p", [Key, Values, Value])}
     end.
 
 validate_integer(Opts, Key, Default, Min, Max, Infinity) ->
-    {Value, NewOpts} = stage_keyword:pop(Opts, Key, Default),
+    Value = proplists:get_value(Key, Opts, Default),
     if
         Value =:= infinity andalso Infinity ->
             {ok, Value, Opts};
@@ -1390,6 +1415,7 @@ validate_integer(Opts, Key, Default, Min, Max, Infinity) ->
             ErrorMsg = "expected ~p to be equal to or less than ~p, got: ~p",
             {error, io_lib:format(ErrorMsg, [Key, Max, Value])};
         true ->
+            NewOpts = proplists:delete(Key, Opts),
             {ok, Value, NewOpts}
     end.
 

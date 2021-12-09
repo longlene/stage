@@ -1,4 +1,4 @@
--module(stage_dispatcher).
+-module(gen_stage_dispatcher).
 
 -type keyword() :: [{atom(), any()}].
 

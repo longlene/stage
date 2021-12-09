@@ -1,4 +1,4 @@
--module(stage_buffer).
+-module(gen_stage_buffer).
 
 -export(
    [
