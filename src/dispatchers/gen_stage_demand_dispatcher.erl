@@ -1,4 +1,17 @@
 -module(gen_stage_demand_dispatcher).
+%% @doc
+%% A dispatcher that sends batches to the highest demand.
+%%
+%% This is the default dispatcher used by gen_stage. In order
+%% to avoid greedy consumers, it is recommended that all consumers
+%% have exactly the same maximum demand.
+%%
+%% Examples
+%% 
+%% To start a producer with demands shuffled on first dispatch:
+%%
+%% {producer, State, [{dispatcher, gen_stage_demand_dispatcher}]}
+%% @end
 
 -behavior(gen_stage_dispatcher).
 

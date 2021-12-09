@@ -13,6 +13,9 @@
          with_80_percent_min_demand_with_init_subscription/1,
          with_20_percent_min_demand_with_init_subscription/1,
          with_80_percent_min_demand_with_late_subscription/1,
+         with_20_percent_min_demand_with_late_subscription/1,
+         stops_asking_when_consumer_stops_asking/1,
+         keeps_emitting_events_even_when_discarded/1,
 
          handle_info/1,
          terminate/1
@@ -29,6 +32,9 @@ all() ->
      with_80_percent_min_demand_with_init_subscription,
      with_20_percent_min_demand_with_init_subscription,
      with_80_percent_min_demand_with_late_subscription,
+     with_20_percent_min_demand_with_late_subscription,
+     stops_asking_when_consumer_stops_asking,
+     keeps_emitting_events_even_when_discarded,
 
      handle_info,
      terminate
@@ -161,6 +167,61 @@ with_80_percent_min_demand_with_late_subscription(_Config) ->
     ?assertReceive({consumed, Batch4}),
     Batch5 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(125, 139)),
     ?assertReceive({consumed, Batch5}).
+
+with_20_percent_min_demand_with_late_subscription(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    {ok, Doubler} = doubler:start_link({producer_consumer, self()}),
+    {ok, Consumer} = forwarder:start_link({consumer, self()}),
+
+    gen_stage:sync_subscribe(Consumer, [{to, Doubler}, {min_demand, 50}, {max_demand, 100}]),
+    gen_stage:sync_subscribe(Doubler, [{to, Producer}, {min_demand, 20}, {max_demand, 100}]),
+
+    Batch = lists:seq(0, 79),
+    ?assertReceive({producer_consumed, Batch}),
+    Batch1 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(0, 24)),
+    ?assertReceive({consumed, Batch1}),
+    Batch2 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(25, 49)),
+    ?assertReceive({consumed, Batch2}),
+    Batch3 = lists:flatmap(fun(I) -> [I, I] end, lists:seq(50, 74)),
+    ?assertReceive({consumed, Batch3}),
+    Batch4 = lists:seq(100, 179),
+    ?assertReceive({producer_consumed, Batch4}).
+
+stops_asking_when_consumer_stops_asking(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    {ok, Postponer} =
+        postponer:start_link(
+          {producer_consumer, self(),
+          [{subscribe_to, [{Producer, [{max_demand, 10}, {min_demand, 8}]}]}]}),
+    {ok, _} = sleeper:start_link({consumer, self(), [{subscribe_to, [{Postponer, [{max_demand, 10}, {min_demand, 5}]}]}]}),
+
+    ?assertReceive({postponed, [0, 1]}),
+    ?assertReceive({sleep, [0, 1]}),
+    ?assertReceive({postponed, [2, 3]}),
+    ?assertReceive({postponed, [4, 5]}),
+    ?assertReceive({postponed, [6, 7]}),
+    ?assertReceive({postponed, [8, 9]}),
+    ?refuteReceived({sleep, [2, 3]}),
+    ?refuteReceived({postponed, [10, 11]}).
+
+keeps_emitting_events_even_when_discarded(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    {ok, Discarder} =
+        discarder:start_link(
+          {producer_consumer, self(),
+          [{subscribe_to, [{Producer, [{max_demand, 100}, {min_demand, 80}]}]}]}),
+    {ok, _} = forwarder:start_link({consumer, self(), [{subscribe_to, [{Discarder, [{max_demand, 100}, {min_demand, 50}]}]}]}),
+
+    Batch = lists:seq(0, 19),
+    ?assertReceive({discarded, Batch}),
+    Batch1 = lists:seq(100, 119),
+    ?assertReceive({discarded, Batch1}),
+    Batch2 = lists:seq(1000, 1019),
+    ?assertReceive({discarded, Batch2}).
+
+    
+
+
 
 % TODO
 
