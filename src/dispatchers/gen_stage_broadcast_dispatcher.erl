@@ -1,5 +1,13 @@
 -module(gen_stage_broadcast_dispatcher).
 
+%% @doc
+%% A dispatcher that accumulates demand from all consumers
+%% before broadcasting events to all of them.
+%%
+%% This dispatcher guarantees that events are dispatched to all
+%% consumers without exceeding the demand of any given consumer.
+%% @end
+
 -behavior(gen_stage_dispatcher).
 
 -export([

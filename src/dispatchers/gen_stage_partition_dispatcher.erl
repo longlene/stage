@@ -1,4 +1,10 @@
 -module(gen_stage_partition_dispatcher).
+%% @doc
+%% A dispatcher that sends events according to partitions.
+%%
+%% Keep in mind that, if partitions are not evenly distributed,
+%% a backed-up partition will slow all other ones.
+%% @end
 
 -behavior(gen_stage_dispatcher).
 
