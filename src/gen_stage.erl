@@ -1,4 +1,4 @@
-%%
+%% @doc
 %% Stages are data-exchange steps that send and/or receive data
 %% from other stages.
 %%
@@ -40,7 +40,7 @@
 %% receives demand and sends data to multiple consumers, the demand
 %% is tracked and the events are sent by a dispatcher. This allows
 %% producers to send data using different "strategies". See
-%% `gen_stage_dispatcher` for more information.
+%% gen_stage_dispatcher for more information.
 %%
 %% Many developers tend to create layers of stages, such as A, B and
 %% C, for achieving concurrency. If all you want is concurrency, starting
@@ -64,7 +64,7 @@
 %%
 %% where "Consumer" are multiple processes running the same code that
 %% subscribe to the same "Producer".
-
+%% @end
 
 -module(gen_stage).
 -behaviour(gen_server).
@@ -145,7 +145,7 @@
 | {to, server()}
 | {min_demand, integer()}
 | {max_demand, integer()}
-| {atom(), term()}. %% Option used by the `subscribe*` functions
+| {atom(), term()}.
 
 -type subscription_options() :: [subscription_option()].
 
@@ -288,9 +288,7 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
     | {stop, Reason, NewState}
       when Reply :: term(), NewState :: term(), Reason :: term(), Event :: term().
 
-%% @doc
-%% Invoked to handle asynchronous `cast/2` messages.
-%% @end
+%% @doc Invoked to handle asynchronous `cast/2` messages.
 -callback handle_cast(Request :: term(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
@@ -483,7 +481,7 @@ sync_subscribe(Stage, Opts, Timeout) ->
 %% won't wait for the subscription confirmation.
 %%
 %%  See `sync_subscribe/2` for options and more information.
-%%  @end
+%% @end
 -spec sync_resubscribe(stage(), subscription_tag(), term(), subscription_options()) -> {ok, subscription_tag()} | {error, not_a_consumer} | {error, {bad_opts, iolist() | binary()}}.
 sync_resubscribe(Stage, SubscriptionTag, Reason, Opts) ->
     sync_resubscribe(Stage, SubscriptionTag, Reason, Opts, ?TIMEOUT).
@@ -661,7 +659,8 @@ cast(Stage, Request) ->
 %% of `handle_call/3`.
 %%
 %% `client` must be the `from` argument (the second argument) accepted by
-%% `handle_call/3` callbacks. `reply` is an arbitrary term which will be %% given back to the client as the return value of the call.
+%% `handle_call/3` callbacks. `reply` is an arbitrary term which will be
+%%  given back to the client as the return value of the call.
 %%
 %% Note that `reply/2` can be called from any process, not just the `gen_stage`
 %% that originally received the call (as long as that `gen_stage` communicated the
@@ -686,7 +685,6 @@ reply({To, Tag}, Reply) when is_pid(To) ->
 %% This function keeps OTP semantics regarding error reporting.
 %% If the reason is any other than `normal`, `shutdown` or
 %% `{shutdown, _}`, an error report is logged.
-%% @end
 stop(Stage) ->
     stop(Stage, normal, infinity).
 
@@ -694,9 +692,7 @@ stop(Stage) ->
 stop(Stage, Reason, Timeout) ->
     gen:stop(Stage, Reason, Timeout).
 
-%% @doc
-%% Returns the estimated number of buffered items for a producer.
-%% @end
+%% @doc Returns the estimated number of buffered items for a producer.
 estimate_buffered_count(Stage) ->
     estimate_buffered_count(Stage, 5000).
 

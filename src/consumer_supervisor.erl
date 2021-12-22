@@ -44,19 +44,19 @@
 %% Starts a supervisor with the given children.
 %%
 %% A strategy is required to be given as an option. Furthermore,
-%% the `max_restarts`, `max_seconds`, and `subscribe_to`
-%% values can be configured as described in the documentation for the
-%% `init/1` callback.
+%% the max_restarts, max_seconds, and subscribe_to values
+%% can be configured as described in the documentation for the
+%% init/1 callback.
 %%
 %% The options can also be used to register a supervisor name.
 %% The supported values are described under the "Name Registration"
-%% section in the `gen_server` module docs.
-%% The child processes specified in `children` will be started by appending
+%% section in the gen_server module docs.
+%% The child processes specified in children will be started by appending
 %% the event to process to the existing function arguments in the child specification.
 %%
 %% Note that the consumer supervisor is linked to the parent process
 %% and will exit not only on crashes but also if the parent process
-%% exits with `normal` reason.
+%% exits with normal reason.
 %% @end
 -spec start_link(module(), any()) -> supervisor:startlink_ret().
 start_link(Mod, Args) ->

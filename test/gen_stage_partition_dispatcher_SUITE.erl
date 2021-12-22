@@ -5,13 +5,15 @@
 -export([all/0]).
 -export([
          subscribes_asks_and_cancels/1,
-         subscribes_asks_and_dispatches/1
+         subscribes_asks_and_dispatches/1,
+         subscribes_asks_and_dispatches_to_custom_partitions/1
         ]).
 
 all() ->
     [
      subscribes_asks_and_cancels,
-     subscribes_asks_and_dispatches
+     subscribes_asks_and_dispatches,
+     subscribes_asks_and_dispatches_to_custom_partitions
     ].
 
 dispatcher(Opts) ->
@@ -58,4 +60,25 @@ subscribes_asks_and_dispatches(_Config) ->
     {ok, [9, 11], Disp5} = gen_stage_partition_dispatcher:dispatch([2, 5, 6, 7, 8, 9, 11], 7, Disp4),
     ?assert({0, 0} =:= waiting_and_pending(Disp5)),
     ?assertReceived({'$gen_consumer', {_, Ref}, [2, 5, 6, 7, 8]}).
+
+subscribes_asks_and_dispatches_to_custom_partitions(_Config) ->
+    Pid = self(),
+    Ref = make_ref(),
+    Hash =
+        fun(Event) ->
+                {Event, case Event rem 2 of 0 -> even; _ -> odd end}
+        end,
+    Disp = dispatcher([{partitions, [odd, even]}, {hash, Hash}]),
+    {ok, 0, Disp1} = gen_stage_partition_dispatcher:subscribe([{partition, odd}], {Pid, Ref}, Disp),
+    {ok, 3, Disp2} = gen_stage_partition_dispatcher:ask(3, {Pid, Ref}, Disp1),
+    {ok, [], Disp3} = gen_stage_partition_dispatcher:dispatch([1], 1, Disp2),
+    ?assert({2, 0} =:= waiting_and_pending(Disp3)),
+    ?assertReceived({'$gen_consumer', {_, Ref}, [1]}),
+
+    {ok, 3, Disp4} = gen_stage_partition_dispatcher:ask(3, {Pid, Ref}, Disp3),
+    ?assert({5, 0} =:= waiting_and_pending(Disp4)),
+
+    {ok, [15, 17], Disp5} = gen_stage_partition_dispatcher:dispatch([5, 7, 9, 11, 13, 15, 17], 7, Disp4),
+    ?assert({0, 0} =:= waiting_and_pending(Disp5)),
+    ?assertReceived({'$gen_consumer', {_, Ref}, [5, 7, 9, 11, 13]}).
 
