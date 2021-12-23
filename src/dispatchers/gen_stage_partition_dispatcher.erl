@@ -170,7 +170,7 @@ split_events([Event | Events], Counter, Hash, Partitions) ->
                     erlang:put(Partition, [Event1 | Current]),
                     split_events(Events, Counter - 1, Hash, Partitions)
             end;
-        undefined ->
+        none ->
             split_events(Events, Counter, Hash, Partitions);
         Other ->
             throw(iolist_to_binary(io_lib:format("hash function should return {Event, Partition}, got ~p", [Other])))
