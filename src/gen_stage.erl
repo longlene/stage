@@ -56,17 +56,17 @@
 %%
 %% Instead it is better to design it as:
 %%
-%%                  [Consumer]
-%%                 /
-%%     [Producer]-<-[Consumer]
-%%                 \
-%%                  [Consumer]
+%%                   [Consumer]
+%%                  /
+%%     [Producer]-&lt;-[Consumer]
+%%                  \
+%%                   [Consumer]
 %%
 %% where "Consumer" are multiple processes running the same code that
 %% subscribe to the same "Producer".
 %% @end
-
 -module(gen_stage).
+
 -behaviour(gen_server).
 
 -export([
@@ -175,18 +175,18 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
 %% @doc
 %% Invoked when the server is started.
 %%
-%% `start_link/3` (or `start/3`) will block until this callback returns.
-%% `args` is the argument term (second argument) passed to `start_link/3`
-%% (or `start/3`).
+%% `start_link/3' (or `start/3') will block until this callback returns.
+%% `Args' is the argument term (second argument) passed to `start_link/3'
+%% (or `start/3').
 %%
 %% In case of successful start, this callback must return a tuple
 %% where the first element is the stage type, which is one of:
-%%   * `producer`
-%%   * `consumer`
-%%   * `producer_consumer` (if the stage is acting as both)
+%%   * `producer'
+%%   * `consumer'
+%%   * `producer_consumer' (if the stage is acting as both)
 %%
 %% The returned tuple may also contain 3 or 4 elements. The third
-%% element may be the `:hibernate` atom or a set of options defined
+%% element may be the `hibernate' atom or a set of options defined
 %% below.
 %%
 %% Returning `ignore` will cause `start_link/3` to return `ignore`
@@ -321,9 +321,7 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
 -callback code_change(OldVsn :: term(), State :: term(), Extra :: term()) ->
     {ok, NewState :: term()} | {error, Reason :: term()}.
 
-%% @doc
-%% The same as `gen_server:format_status/3`.
-%% @end
+%% @doc The same as `gen_server:format_status/3`.
 -callback format_status(normal | terminate, [{term(), term()} | (State :: term())]) ->
     Status :: term().
 
@@ -685,6 +683,7 @@ reply({To, Tag}, Reply) when is_pid(To) ->
 %% This function keeps OTP semantics regarding error reporting.
 %% If the reason is any other than `normal`, `shutdown` or
 %% `{shutdown, _}`, an error report is logged.
+%% @end
 stop(Stage) ->
     stop(Stage, normal, infinity).
 
@@ -1042,8 +1041,8 @@ producer_subscribe(Opts, From, Stage) ->
                 {ok, _, _} = Result -> handle_dispatcher_result(Result, NewStage);
                 {error, Reason} -> producer_cancel(element(1, From), cancel, Reason, NewStage)
             end;
-        {stop, Reason, State} ->
-            {stop, Reason, Stage#stage{state = State}};
+        {stop, Reason, NewState} ->
+            {stop, Reason, Stage#stage{state = NewState}};
         Other ->
             {stop, {bad_return_value, Other}, Stage}
     end.

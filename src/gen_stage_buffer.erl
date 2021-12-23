@@ -1,4 +1,3 @@
--module(gen_stage_buffer).
 %% @doc
 %% The buffer stores temporary, which is implicitly discarded,
 %% and permanent data, which are explicitly discarded.
@@ -7,6 +6,7 @@
 %% The temporary data is stored in a queue. Permanent data
 %% is stored in a wheel for performance and to avoid discards.
 %% @end
+-module(gen_stage_buffer).
 
 -export(
    [
@@ -17,9 +17,7 @@
     store_permanent_unless_empty/2
    ]).
 
-%% @doc
-%% Builds a new buffer.
-%% @end
+%% @doc Builds a new buffer.
 new(Size) when Size > 0 ->
     {queue:new(), 0, init_wheel(Size)}.
 
@@ -33,7 +31,7 @@ estimate_size({_, Count, _}) -> Count.
 %% @doc
 %% Stores the temporary entries.
 %%
-%% `keep` controls which side to keep, `first` or `last`.
+%% keep controls which side to keep, first or last.
 %%
 %% It returns a new buffer, the amount of discarded messages and
 %% any permanent entry that had to be emitted while discarding.
@@ -96,7 +94,7 @@ store_permanent_unless_empty(Buffer, Perm) ->
 %% @doc
 %% Take count temporary from the buffer or until we find a permanent.
 %%
-%% Return `empty` if nothing was taken.
+%% Return empty if nothing was taken.
 %% @end
 take_count_or_until_permanent({_Queue, Buffer, _Infos}, Counter) when Buffer =:= 0 orelse Counter =:= 0 ->
     empty;
