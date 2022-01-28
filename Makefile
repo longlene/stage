@@ -6,7 +6,7 @@ all: compile
 compile:
 	$(REBAR) compile
 
-doc:
+edoc:
 	$(REBAR) edoc
 
 dialyzer:

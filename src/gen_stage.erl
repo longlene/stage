@@ -172,7 +172,6 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
 
 -type from() :: {pid(), subscription_tag()}.
 
-%% @doc
 %% Invoked when the server is started.
 %%
 %% `start_link/3' (or `start/3') will block until this callback returns.
@@ -189,14 +188,13 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
 %% element may be the `hibernate' atom or a set of options defined
 %% below.
 %%
-%% Returning `ignore` will cause `start_link/3` to return `ignore`
+%% Returning `ignore' will cause `start_link/3' to return `ignore'
 %% and the process will exit normally without entering the loop or
-%% calling `terminate/2`.
+%% calling `terminate/2'.
 %%
-%% Returning `{stop, Reason}` will cause `start_link/3` to return
-%% `{error, Reason}` and the process to exit with reason `reason`
-%% without entering the loop or calling `terminate/2`.
-%% @end
+%% Returning `{stop, Reason}' will cause `start_link/3' to return
+%% `{error, Reason}' and the process to exit with reason `reason'
+%% without entering the loop or calling `terminate/2'.
 -callback init(Args :: term()) -> 
     {producer, State}
     | {producer, State, [producer_option()]}
@@ -208,77 +206,65 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
     | {stop, Reason :: any()}
       when State :: any().
 
-%% @doc
-%% Invoked on `producer` stages.
+%% Invoked on `producer' stages.
 %%
-%% This callback is invoked on `producer` stages with the demand from
+%% This callback is invoked on `producer' stages with the demand from
 %% consumers/dispatcher. The producer that implements this callback must
 %% either store the demand, or return the amount of requested events.
 %%
-%% Must always be explicitly implemented by `producer` stages.
-%% @end
+%% Must always be explicitly implemented by `producer' stages.
 -callback handle_demand(Demand :: pos_integer(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
     | {stop, Reason, NewState}
       when NewState :: term(), Reason :: term(), Event :: term().
 
-%% @doc
 %% Invoked when a consumer subscribes to a producer.
 %%
 %% This callback is invoked in both producers and consumers.
-%% `producer_or_consumer` will be `producer` when this callback is
-%% invoked on a consumer that subscribed to a producer, and `consumer`
+%% `producer_or_consumer' will be `producer' when this callback is
+%% invoked on a consumer that subscribed to a producer, and `consumer'
 %% if when this callback is invoked on producers a consumer subscribed
 %% to.
-%% @end
 -callback handle_subscribe(Type :: producer | consumer, subscription_options(), from(), State :: term()) ->
     {automatic | manual, NewState}
     | {stop, Reason, NewState}
       when NewState :: term(), Reason :: term().
 
-%% @doc
 %% Invoked when items are discarded from the buffer.
 %%
 %% It receives the number of excess (discarded) items from this invocation.
 %% This callback returns a boolean that controls whether the default error log for discarded items is printed or not.
 %% Return true to print the log, return false to skip the log.
-%% @end
 -callback format_discarded(Discarded :: non_neg_integer(), State :: term()) -> boolean().
 
-%% @doc
 %% Invoked when a consumer is no longer subscribed to a producer.
 %%
-%% It receives the cancellation reason, the `from` tuple representing the
-%% cancelled subscription and the state.  The `cancel_reason` will be a
-%% `{cancel, _}` tuple if the reason for cancellation was a `gen_stage:cancel/2`
+%% It receives the cancellation reason, the `from' tuple representing the
+%% cancelled subscription and the state.  The `cancel_reason' will be a
+%% `{cancel, _}' tuple if the reason for cancellation was a `gen_stage:cancel/2`
 %% call. Any other value means the cancellation reason was due to an EXIT.
-%% @end
 -callback handle_cancel(CancellationReason :: {cancel | down, Reason}, from(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
     | {stop, Reason, NewState}
       when Event :: term(), NewState :: term(), Reason :: term().
 
-%% @doc
-%% Invoked on `producer_consumer` and `consumer` stages to handle events.
+%% Invoked on `producer_consumer' and `consumer' stages to handle events.
 %%
 %% Must always be explicitly implemented by such types.
 %%
-%% Return values are the same as `c:handle_cast/2`.
-%% @end
+%% Return values are the same as `c:handle_cast/2'.
 -callback handle_events(Events :: [Event], from(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
     | {stop, Reason, NewState}
       when NewState :: term(), Reason :: term(), Event :: term().
 
-%% @doc
-%% Invoked to handle synchronous `call/3` messages.
+%% Invoked to handle synchronous `call/3' messages.
 %%
-%% `call/3` will block until a reply is received (unless the call times out or
+%% `call/3' will block until a reply is received (unless the call times out or
 %% nodes are disconnected).
-%% @end
 -callback handle_call(Request :: term(), From :: {pid(), term()}, State :: term()) ->
     {reply, Reply, [Event], NewState}
     | {reply, Reply, [Event], NewState, hibernate}
@@ -288,40 +274,34 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
     | {stop, Reason, NewState}
       when Reply :: term(), NewState :: term(), Reason :: term(), Event :: term().
 
-%% @doc Invoked to handle asynchronous `cast/2` messages.
+%% Invoked to handle asynchronous `cast/2' messages.
 -callback handle_cast(Request :: term(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
     | {stop, Reason :: term(), NewState}
       when NewState :: term(), Event :: term().
 
-%% @doc
 %% Invoked to handle all other messages.
 %%
-%% `message` is the message and `state` is the current state of the `gen_stage`.
-%% When a timeout occurs the message is `timeout`.
+%% `message' is the message and `state' is the current state of the `gen_stage'.
+%% When a timeout occurs the message is `timeout'.
 %%
-%% Return values are the same as `c:handle_cast/2`.
-%% @end
+%% Return values are the same as `c:handle_cast/2'.
 -callback handle_info(Message :: term(), State :: term()) ->
     {noreply, [Event], NewState}
     | {noreply, [Event], NewState, hibernate}
     | {stop, Reason :: term(), NewState}
       when NewState :: term(), Event :: term().
 
-%% @doc
-%% The same as `gen_server:terminate/2`.
-%% @end
+%% The same as `gen_server:terminate/2'.
 -callback terminate(Reason, State :: term()) -> term()
                                                   when Reason :: normal | shutdown | {shutdown, term()} | term().
 
-%% @doc
-%% The same as `gen_server:code_change/3`.
-%% @end
+%% The same as `gen_server:code_change/3'.
 -callback code_change(OldVsn :: term(), State :: term(), Extra :: term()) ->
     {ok, NewState :: term()} | {error, Reason :: term()}.
 
-%% @doc The same as `gen_server:format_status/3`.
+%% The same as `gen_server:format_status/3'.
 -callback format_status(normal | terminate, [{term(), term()} | (State :: term())]) ->
     Status :: term().
 
@@ -343,19 +323,19 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
    ]).
 
 %% @doc
-%% Starts a `gen_stage` process linked to the current process.
+%% Starts a `gen_stage' process linked to the current process.
 %%
-%% This is often used to start the `gen_stage` as part of a supervision tree.
+%% This is often used to start the `gen_stage' as part of a supervision tree.
 %%
-%% Once the server is started, the `init/1` function of the given `Mod` is
-%% called with `Args` as its arguments to initialize the stage. To ensure a
-%% synchronized start-up procedure, this function does not return until `init/1`
+%% Once the server is started, the `init/1' function of the given `Mod' is
+%% called with `Args' as its arguments to initialize the stage. To ensure a
+%% synchronized start-up procedure, this function does not return until `init/1'
 %% has returned.
 %%
-%% Note that a `gen_stage` started with `start_link/3` is linked to the
-%% parent process and will exit in case of crashes from the parent. The `gen_stage`
-%% will also exit due to the `normal` reason in case it is configured to trap
-%% exits in the `init/1` callback.
+%% Note that a `gen_stage' started with `start_link/3' is linked to the
+%% parent process and will exit in case of crashes from the parent. The `gen_stage'
+%% will also exit due to the `normal' reason in case it is configured to trap
+%% exits in the `init/1' callback.
 %% @end
 -spec start_link(module(), term()) -> on_start().
 start_link(Mod, Args) ->
@@ -370,10 +350,9 @@ start_link(Name, Mod, Args, Options) when is_atom(Mod), is_list(Options) ->
     gen_server:start_link(Name, ?MODULE, {Mod, Args}, Options).
 
 %% @doc
-%% Starts a `GenStage` process without links (outside of a supervision tree).
+%% Starts a `gen_stage' process without links (outside of a supervision tree).
 %%
-%% See `start_link/3` for more information.
-%% @end
+%% See `start_link/3' for more information.
 -spec start(module(), term()) -> on_start().
 start(Mod, Args) ->
     start(Mod, Args, []).
@@ -391,13 +370,12 @@ start(Name, Mod, Args, Options) when is_atom(Mod), is_list(Options) ->
 %%
 %% This call is synchronous and will return after the stage has queued
 %% the info message. The message will be eventually handled by the
-%% `handle_info/2` callback.
+%% `handle_info/2' callback.
 %%
 %% If the stage is a consumer, it does not have buffered events, so the
 %% messaged is queued immediately.
 %%
-%% This function will return `:ok` if the info message is successfully queued.
-%% @end
+%% This function will return `ok' if the info message is successfully queued.
 -spec sync_info(stage(), term()) -> ok.
 sync_info(Stage, Msg) ->
     sync_info(Stage, Msg, ?TIMEOUT).
@@ -413,9 +391,8 @@ sync_info(Stage, Msg, Timeout) ->
 %% If the stage is a consumer, it does not have buffered events, so the
 %% message is queued immediately.
 %%
-%% This call returns `ok` regardless if the info has been successfully
+%% This call returns `ok' regardless if the info has been successfully
 %% queued or not. It is typically called from the stage itself.
-%% @end
 -spec async_info(stage(), term()) -> ok.
 async_info(Stage, Msg) ->
     cast(Stage, {'$info', Msg}).
@@ -423,22 +400,20 @@ async_info(Stage, Msg) ->
 %% @doc
 %% Returns the demand mode for a producer.
 %%
-%% It is either `forward` or `accumulate`. See `demand/2`.
-%% @end
+%% It is either `forward' or `accumulate'. See `demand/2'.
 -spec demand(stage()) -> forward | accumulate.
 demand(Stage) ->
     call(Stage, '$demand').
 
 %% @doc
 %% Sets the demand mode for a producer.
-%% When `forward`, the demand is always forwarded to the `handle_demand`
-%% callback. When `accumulate`, demand is accumulated until its mode is
-%% set to `forward`. This is useful as a synchronization mechanism, where
+%% When `forward', the demand is always forwarded to the `handle_demand'
+%% callback. When `accumulate', demand is accumulated until its mode is
+%% set to `forward'. This is useful as a synchronization mechanism, where
 %% the demand is accumulated until all consumers are subscribed. Defaults
-%% to `forward`.
+%% to `forward'.
 %%
 %% This command is asynchronous.
-%% @end
 -spec demand(stage(), forward | accumulate) -> ok.
 demand(Stage, Mode) ->
     cast(Stage, {'$demand', Mode}).
@@ -449,14 +424,14 @@ demand(Stage, Mode) ->
 %% This call is synchronous and will return after the called consumer
 %% sends the subscribe message to the producer. It does not, however,
 %% wait for the subscription confirmation. Therefore this function
-%% will return before `handle_subscribe/4` is called in the consumer.
+%% will return before `handle_subscribe/4' is called in the consumer.
 %% In other words, it guarantees the message was sent, but it does not
 %% guarantee a subscription has effectively been established.
 %%
-%% This function will return `{ok, subscription_tag}` as long as the
-%% subscription message is sent. It will return `{error, not_a_consumer}`
-%% when the stage is not a consumer. `subscription_tag` is the second element
-%% of the two-element tuple that will be passed to `handle_subscribe/4`.
+%% This function will return `{ok, subscription_tag}' as long as the
+%% subscription message is sent. It will return `{error, not_a_consumer}'
+%% when the stage is not a consumer. `subscription_tag' is the second element
+%% of the two-element tuple that will be passed to `handle_subscribe/4'.
 %% @end
 -spec sync_subscribe(stage(), subscription_options()) -> {ok, subscription_tag()} | {error, not_a_consumer} | {error, {bad_opts, iolist() | binary()}}.
 sync_subscribe(Stage, Opts) ->
@@ -468,7 +443,7 @@ sync_subscribe(Stage, Opts, Timeout) ->
 %% TODO check paramter
 
 %% @doc
-%% Cancels `SubscriptionTag` with `Reason` and resubscribe
+%% Cancels `SubscriptionTag' with `Reason' and resubscribe
 %% to the same stage with the given options.
 %%
 %% This is useful in case you need to update the options in
@@ -478,7 +453,7 @@ sync_subscribe(Stage, Opts, Timeout) ->
 %% subscription message is sent to the producer, although it
 %% won't wait for the subscription confirmation.
 %%
-%%  See `sync_subscribe/2` for options and more information.
+%%  See `sync_subscribe/2' for options and more information.
 %% @end
 -spec sync_resubscribe(stage(), subscription_tag(), term(), subscription_options()) -> {ok, subscription_tag()} | {error, not_a_consumer} | {error, {bad_opts, iolist() | binary()}}.
 sync_resubscribe(Stage, SubscriptionTag, Reason, Opts) ->
@@ -500,32 +475,32 @@ sync_subscribe(Stage, Cancel, Opts, Timeout) ->
 %% @doc
 %% Asks the consumer to subscribe to the given producer asynchronously.
 %% This function is async, which means it always returns
-%% `ok` once the request is dispatched but without waiting
+%% `ok' once the request is dispatched but without waiting
 %% for its completion. This particular function is usually
-%% called from a stage's `init/1` callback.
+%% called from a stage's `init/1' callback.
 %%
 %% Options
 %%
-%% This function accepts the same options as `sync_subscribe/2`.
+%% This function accepts the same options as `sync_subscribe/2'.
 %% @end
 -spec async_subscribe(stage(), subscription_options()) -> ok.
 async_subscribe(Stage, Opts) ->
     async_subscribe(Stage, undefined, Opts).
 
 %% @doc
-%% Cancels `SubscriptionTag` with `Reason` and resubscribe
+%% Cancels `SubscriptionTag' with `Reason' and resubscribe
 %% to the same stage with the given options.
 %%
 %% This is useful in case you need to update the options in
 %% which you are currently subscribed to in a producer.
 %%
 %% This function is async, which means it always returns
-%% `ok` once the request is dispatched but without waiting
+%% `ok' once the request is dispatched but without waiting
 %% for its completion.
 %%
 %% Options
 %%
-%% This function accepts the same options as `sync_subscribe/2`.
+%% This function accepts the same options as `sync_subscribe/2'.
 %% @end
 -spec async_resubscribe(stage(), subscription_tag(), term(), subscription_options()) -> ok.
 async_resubscribe(Stage, SubscriptionTag, Reason, Opts) ->
@@ -543,20 +518,20 @@ async_subscribe(Stage, Cancel, Opts) ->
 %% @doc
 %% Asks the given demand to the producer.
 %%
-%% `ProducerSubscription` is the subscription this demand will be asked on; this
+%% `ProducerSubscription' is the subscription this demand will be asked on; this
 %% term could be for example stored in the stage when received in
-%% `handle_subscribe/4`.
+%% `handle_subscribe/4'.
 %%
 %% The demand is a non-negative integer with the amount of events to
 %% ask a producer for. If the demand is `0`, this function simply returns `ok`
 %% without asking for data.
 %%
 %% This function must only be used in the cases when a consumer
-%% sets a subscription to `manual` mode in the `handle_subscribe/4`
+%% sets a subscription to `manual' mode in the `handle_subscribe/4`
 %% callback.
 %%
 %% It accepts the same options as `erlang:send/3`, and returns the same value as
-%% `erlang:send/3`.
+%% `erlang:send/3'.
 %% @end
 -spec ask(from(), non_neg_integer()) -> ok | noconnect | nosuspend.
 ask(ProducerSubscription, Demand) ->
@@ -576,20 +551,20 @@ ask({Pid, Ref}, Demand, Opts) when is_integer(Demand), Demand > 0 ->
 %% forwarded to the consumer (although there is no guarantee
 %% as the producer may crash for unrelated reasons before).
 %% The consumer will react to the cancellation according to
-%% the `cancel` option given when subscribing. For example:
+%% the `cancel' option given when subscribing. For example:
 %%
 %%     gen_stage:cancel({Pid, Subscription}, shutdown)
 %%
-%% will cause the consumer to crash if the `cancel` given
-%% when subscribing is `permanent` (the default) but it
+%% will cause the consumer to crash if the `cancel' given
+%% when subscribing is `permanent' (the default) but it
 %% won't cause a crash in other modes. See the options in
-%% `sync_subscribe/3` for more information.
+%% `sync_subscribe/3' for more information.
 %%
-%% The `cancel` operation is an asynchronous request. The
-%% third argument are same options as `erlang:send/3`,
-%% allowing you to pass `noconnect` or `nosuspend` which
+%% The `cancel' operation is an asynchronous request. The
+%% third argument are same options as `erlang:send/3',
+%% allowing you to pass `noconnect' or `nosuspend' which
 %% is useful when working across nodes. This function returns
-%% the same value as `erlang:send/3`.
+%% the same value as `erlang:send/3'.
 %% @end
 -spec cancel(from(), term()) -> ok | noconnect | nosuspend.
 cancel({Pid, Ref} = _ProducerSubscription, Reason) ->
@@ -603,20 +578,20 @@ send_noconnect(Pid, Msg) ->
     erlang:send(Pid, Msg, [noconnect]).
 
 %% @doc
-%% Makes a synchronous call to the `stage` and waits for its reply.
+%% Makes a synchronous call to the `stage' and waits for its reply.
 %%
-%% The client sends the given `request` to the stage and waits until a
-%% reply arrives or a timeout occurs. `handle_call/3` will be called on
+%% The client sends the given `request' to the stage and waits until a
+%% reply arrives or a timeout occurs. `handle_call/3' will be called on
 %% the stage to handle the request.
 %%
-%% `stage` can be any of the values described in the "Name registration"
+%% `stage' can be any of the values described in the "Name registration"
 %% section of the documentation for this module.
 %% 
 %% Timeouts
 %%
-%% `timeout` is an integer greater than zero which specifies how many
-%% milliseconds to wait for a reply, or the atom `infinity` to wait
-%% indefinitely. The default value is `5000`. If no reply is received
+%% `timeout' is an integer greater than zero which specifies how many
+%% milliseconds to wait for a reply, or the atom `infinity' to wait
+%% indefinitely. The default value is `5000'. If no reply is received
 %% within the specified time, the function call fails and the caller
 %% exits. If the caller catches the failure and continues running, and
 %% the stage is just late with the reply, such reply may arrive at any
@@ -633,15 +608,15 @@ call(Stage, Request, Timeout) ->
     gen_server:call(Stage, Request, Timeout).
 
 %% @doc
-%% Sends an asynchronous request to the `stage`.
+%% Sends an asynchronous request to the `stage'.
 %%
-%% This function always returns `ok` regardless of whether
-%% the destination `stage` (or node) exists. Therefore it
+%% This function always returns `ok' regardless of whether
+%% the destination `stage' (or node) exists. Therefore it
 %% is unknown whether the destination stage successfully
 %% handled the message.
 %% 
-%% `handle_cast/2` will be called on the stage to handle
-%% the request. In case the `stage` is on a node which is
+%% `handle_cast/2' will be called on the stage to handle
+%% the request. In case the `stage' is on a node which is
 %% not yet connected to the caller one, the call is going to
 %% block until a connection happens.
 %% @end
@@ -653,18 +628,18 @@ cast(Stage, Request) ->
 %% Replies to a client.
 %%
 %% This function can be used to explicitly send a reply to a client that
-%% called `call/3` when the reply cannot be specified in the return value
-%% of `handle_call/3`.
+%% called `call/3' when the reply cannot be specified in the return value
+%% of `handle_call/3'.
 %%
-%% `client` must be the `from` argument (the second argument) accepted by
-%% `handle_call/3` callbacks. `reply` is an arbitrary term which will be
+%% `client' must be the `from' argument (the second argument) accepted by
+%% `handle_call/3' callbacks. `reply' is an arbitrary term which will be
 %%  given back to the client as the return value of the call.
 %%
-%% Note that `reply/2` can be called from any process, not just the `gen_stage`
-%% that originally received the call (as long as that `gen_stage` communicated the
-%% `from` argument somehow).
+%% Note that `reply/2' can be called from any process, not just the `gen_stage`
+%% that originally received the call (as long as that `gen_stage' communicated the
+%% `from' argument somehow).
 %%
-%% This function always returns `ok`.
+%% This function always returns `ok'.
 %% @end
 reply({To, Tag}, Reply) when is_pid(To) ->
     try
@@ -675,14 +650,14 @@ reply({To, Tag}, Reply) when is_pid(To) ->
     end.
 
 %% @doc
-%% Stops the stage with the given `reason`.
+%% Stops the stage with the given `reason'.
 %%
-%% The `terminate/2` callback of the given `stage` will be invoked before
-%% exiting. This function returns `ok` if the server terminates with the
+%% The `terminate/2' callback of the given `stage' will be invoked before
+%% exiting. This function returns `ok' if the server terminates with the
 %% given reason; if it terminates with another reason, the call exits.
 %% This function keeps OTP semantics regarding error reporting.
-%% If the reason is any other than `normal`, `shutdown` or
-%% `{shutdown, _}`, an error report is logged.
+%% If the reason is any other than `normal', `shutdown' or
+%% `{shutdown, _}', an error report is logged.
 %% @end
 stop(Stage) ->
     stop(Stage, normal, infinity).
@@ -1329,7 +1304,6 @@ invoke_cancel(Mode, {_, Reason} = KindReason, {Pid, _} = ProducerRef, #stage{sta
         Other ->
             Other
     end.
-
 
 %% Producer consumer helpers
 put_pc_events(Events, Ref, Queue) ->
