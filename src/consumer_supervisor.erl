@@ -72,6 +72,12 @@
           restarting = 0
          }).
 
+-type sup_ref() :: (Name :: atom())
+| {Name :: atom(), Node :: node()}
+| {global, Name :: term()}
+| {via, Module :: module(), Name :: any()}
+| pid().
+
 %% @doc Starts a supervisor with the given children.
 %%
 %% A strategy is required to be given as an option. Furthermore,
@@ -112,7 +118,7 @@ start_link(Name, Mod, Args, Opts) ->
 %% or an erroneous value, or if it fails, the child is discarded and
 %% `ignore' or `{error, Reason}' where `Reason' is a term containing
 %% information about the error is returned.
--spec start_child(supervisor:sup_ref(), [term()]) -> supervisor:startchild_ret().
+-spec start_child(sup_ref(), [term()]) -> supervisor:startchild_ret().
 start_child(Supervisor, Args) when is_list(Args) ->
     call(Supervisor, {start_child, Args}).
 
@@ -120,15 +126,15 @@ start_child(Supervisor, Args) when is_list(Args) ->
 %%
 %% If successful, the function returns `ok'. If there is no
 %% such pid, the function returns `{error, not_found}'.
--spec terminate_child(supervisor:sup_ref(), pid()) -> ok | {error, not_found}.
+-spec terminate_child(sup_ref(), pid()) -> ok | {error, not_found}.
 terminate_child(Supervisor, Pid) when is_pid(Pid) ->
     call(Supervisor, {terminate_child, Pid}).
 
--spec which_children(supervisor:sup_ref()) -> [{undefined, pid() | restarting, worker | supervisor, dynamic | [module()]}].
+-spec which_children(sup_ref()) -> [{undefined, pid() | restarting, worker | supervisor, dynamic | [module()]}].
 which_children(Supervisor) ->
     call(Supervisor, which_children).
 
--spec count_children(supervisor:sup_ref()) -> #{specs => non_neg_integer(), active => non_neg_integer(), supervisors => non_neg_integer(), workers => non_neg_integer()}.
+-spec count_children(sup_ref()) -> #{specs => non_neg_integer(), active => non_neg_integer(), supervisors => non_neg_integer(), workers => non_neg_integer()}.
 count_children(Supervisor) ->
     call(Supervisor, count_children).
 

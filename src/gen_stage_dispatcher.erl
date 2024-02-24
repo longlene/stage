@@ -33,6 +33,8 @@
 -module(gen_stage_dispatcher).
 
 -type keyword() :: [{atom(), any()}].
+-type options() :: keyword().
+-export_type([options/0]).
 
 %% Called on initialization with the options given on `gen_stage:init/1'.
 -callback init(Opts :: keyword()) -> {ok, State} when State :: any().

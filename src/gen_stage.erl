@@ -167,6 +167,7 @@
 producer_and_producer_consumer_option() | consumer_and_producer_consumer_option().
 
 -type stage() :: pid() | atom() | {global, term()} | {via, module(), term()} | {atom(), node()}.
+-export_type([stage/0]).
 
 -type subscription_tag() :: reference().
 
@@ -1147,7 +1148,7 @@ producer_info(Msg, #stage{type = producer_consumer, events = {Queue, Demand}} = 
             Stage#stage{events = {queue:in({info, Msg}, Queue), Demand}}
     end,
     {reply, ok, NewStage};
-producer_info(Msg, #stage{type = produer} = Stage) ->
+producer_info(Msg, #stage{type = producer} = Stage) ->
     {reply, ok, buffer_or_dispatch_info(Msg, Stage)}.
 
 buffer_or_dispatch_info(Msg, #stage{buffer = Buffer} = Stage) ->
