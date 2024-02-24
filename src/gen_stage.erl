@@ -2,30 +2,30 @@
 %% Stages are data-exchange steps that send and/or receive data
 %% from other stages.
 %%
-%% When a stage sends data, it acts as a producer. When it receives
-%% data, it acts as a consumer. Stages may take both producer and
+%% When a stage sends data, it acts as a <strong>producer</strong>. When it receives
+%% data, it acts as a <strong>consumer</strong>. Stages may take both producer and
 %% consumer roles at once.
-%%
+%% 
 %% ## Stage types
-%%
+%% 
 %% Besieds taking both producer and consumer roles, a stage may be
-%% called "source" if it only produces items or called "sink" if it
+%% called \"source\" if it only produces items or called "sink" if it
 %% only cousumes items.
-%%
+%% 
 %% For example, imagine the stages below where A sends data to B
 %% that sends data to C:
-%%
+%% 
 %%     [A] -> [B] -> [C]
-%%
+%% 
 %% we conclude that:
-%%
+%% 
 %%   * A is only a producer (and therefore a source)
 %%   * B is both producer and consumer
 %%   * C is only a consumer (and therefore a sink)
-%%
+%% 
 %% As we will see in the upcoming Examples section, we must
 %% specify the type of the stage when we implement each of them.
-%%
+%% 
 %% To start the flow of events, we subscribe consumers to
 %% producers. Once the communication channel between them is
 %% established, consumers will ask the producers for events.
@@ -33,7 +33,7 @@
 %% Once demand arrives, the producer will emit items, never
 %% emitting more items than the consumer asked for. This provides
 %% a back-pressure mechanism.
-%%
+%% 
 %% A consumer may have multiple producers and a producer may have
 %% multiple consumers. When a consumer asks for data, each producer
 %% is handled separately, with its own demand. When a producer
@@ -41,29 +41,29 @@
 %% is tracked and the events are sent by a dispatcher. This allows
 %% producers to send data using different "strategies". See
 %% gen_stage_dispatcher for more information.
-%%
+%% 
 %% Many developers tend to create layers of stages, such as A, B and
 %% C, for achieving concurrency. If all you want is concurrency, starting
 %% multiple instances of the same stage is enough. Layers in gen_stage
 %% must be created when there is a need for back-pressure or to route the
 %% data in different ways.
-%%
+%% 
 %% For example, if you need the data to go over multiple steps but
 %% without a need for back-pressure or without a need to break the
 %% data apart, do not design it as such:
-%%
+%% 
 %%     [Producer] -> [Step 1] -> [Step 2] -> [Step 3]
-%%
+%% 
 %% Instead it is better to design it as:
-%%
+%% 
 %%                   [Consumer]
 %%                  /
 %%     [Producer]-&lt;-[Consumer]
 %%                  \
 %%                   [Consumer]
-%%
-%% where "Consumer" are multiple processes running the same code that
-%% subscribe to the same "Producer".
+%% 
+%% where \"Consumer\" are multiple processes running the same code that
+%% subscribe to the same \"Producer\".
 %% @end
 -module(gen_stage).
 
@@ -111,7 +111,7 @@
 -record(stage, {
           mod,
           state,
-          type,
+          type :: type(),
           dispatcher_mod,
           dispatcher_state,
           buffer,
@@ -138,7 +138,7 @@
 
 -type debug() :: trace | log | statistics | {log_to_file, iolist() | binary()}.
 
-%-type type() :: producer | consumer | producer_consumer.
+-type type() :: producer | consumer | producer_consumer.
 
 -type subscription_option() ::
 {cancel, permanent | transient | temporary}
@@ -322,8 +322,7 @@ producer_and_producer_consumer_option() | consumer_and_producer_consumer_option(
     terminate/2
    ]).
 
-%% @doc
-%% Starts a `gen_stage' process linked to the current process.
+%% @doc Starts a `gen_stage' process linked to the current process.
 %%
 %% This is often used to start the `gen_stage' as part of a supervision tree.
 %%

@@ -1,3 +1,21 @@
+%% @doc A supervisor that starts children as events flow in.
+%%
+%% A <c>consumer_supervisor</c> can be used as the consumer in a `gen_stage' pipeline.
+%% A new child process will be started per event, where the event is appended
+%% to the arguments in the child specification.
+%%
+%% A `consumer_supervisor' can be attached to a producer by returning
+%% `subscribe_to' from `init/1' or explicitly with `gen_stage:sync_subscribe/3'
+%% and `gen_stage:async_subscribe/2'.
+%%
+%% Once subscribed, the supervisor will ask the producer for `max_demand' events
+%% and start child processes as evets arrive. As child processes terminate, the
+%% supervisor will aaccumulate demand and request more events once `min_demand'
+%% is reached. This allows the `consumer_supervisor' to work similar to a pool,
+%% except a child process is started per event. The minimum amout of concurrent
+%% children per producer is specified by `min_demand' and maximum is given
+%% by `max_demand'.
+
 -module(consumer_supervisor).
 
 -behaviour(gen_stage).
@@ -14,8 +32,10 @@
          save_child/5
         ]).
 
+%% gen_stage callbacks
 -export([init/1, handle_subscribe/4, handle_cancel/3, handle_events/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+%% Options used by the `start*` functions
 -type option() ::
 {registry, atom()}
 | {strategy, supervisor:strategy()}
@@ -23,6 +43,18 @@
 | {max_records, non_neg_integer()}
 | {subscribe_to, [gen_stage:stage() | {gen_stage:stage(), [{atom(), any()}]}]}.
 
+%% Callback invoked to start the supervisor and during hot code upgrades.
+%%
+%% Options
+%% * `strategy' - the restart strategy optin. Only `one_for_one'
+%%   is supported by consumer supervisors.
+%% * `max_restarts' - the maximum amount of restarts allowed in
+%%   a time frame. Defaults to 3 times.
+%% * `max_seconds' - the time frame in which `max_restarts` applies
+%%   in seconds. Defaults to 5 seconds.
+%% * `subscribe_to' - a list of producers to subscribe to. Each element
+%%   represents the producer or a tuple with the producer and the subscription
+%%   options, for example, `[producer]' or `[{producer, [{max_demand, 20}, {min_demand, 10}]}]'.
 -callback init(Args :: term()) ->
     {ok, [supervisor:child_spec()], Options :: [{atom(), any()}]}
     | ignore.
@@ -40,8 +72,7 @@
           restarting = 0
          }).
 
-%% @doc
-%% Starts a supervisor with the given children.
+%% @doc Starts a supervisor with the given children.
 %%
 %% A strategy is required to be given as an option. Furthermore,
 %% the max_restarts, max_seconds, and subscribe_to values
@@ -57,7 +88,6 @@
 %% Note that the consumer supervisor is linked to the parent process
 %% and will exit not only on crashes but also if the parent process
 %% exits with normal reason.
-%% @end
 -spec start_link(module(), any()) -> supervisor:startlink_ret().
 start_link(Mod, Args) ->
     gen_stage:start_link(?MODULE, {Mod, Args}, []).
@@ -66,10 +96,30 @@ start_link(Mod, Args) ->
 start_link(Name, Mod, Args, Opts) ->
     gen_stage:start_link(Name, ?MODULE, {Mod, Args}, Opts).
 
+%% @doc Starts a child in the consumer supervisor.
+%%
+%% The child process will be started by appending  the given list of
+%% `Args' to the existing function arguments in the child specification.
+%%
+%% This child is started separately from any producer and does not
+%% count towards the demand of any of them.
+%%
+%% If the child process starts, function return `{ok, Child}' or
+%% `{ok, Child, Info}', the pid is added to the supervisor, and the
+%% function returns the same value.
+%%
+%% If the child process start function returns `ignore', an error tuple,
+%% or an erroneous value, or if it fails, the child is discarded and
+%% `ignore' or `{error, Reason}' where `Reason' is a term containing
+%% information about the error is returned.
 -spec start_child(supervisor:sup_ref(), [term()]) -> supervisor:startchild_ret().
 start_child(Supervisor, Args) when is_list(Args) ->
     call(Supervisor, {start_child, Args}).
 
+%% @doc Terminates the given child pid.
+%%
+%% If successful, the function returns `ok'. If there is no
+%% such pid, the function returns `{error, not_found}'.
 -spec terminate_child(supervisor:sup_ref(), pid()) -> ok | {error, not_found}.
 terminate_child(Supervisor, Pid) when is_pid(Pid) ->
     call(Supervisor, {terminate_child, Pid}).
@@ -84,7 +134,6 @@ count_children(Supervisor) ->
 
 call(Supervisor, Req) ->
     gen_stage:call(Supervisor, Req, infinity).
-
 
 %% Callbacks
 init({Mod, Args}) ->

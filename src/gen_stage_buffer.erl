@@ -1,41 +1,36 @@
-%% @doc
-%% The buffer stores temporary, which is implicitly discarded,
+%% @doc The buffer stores temporary, which is implicitly discarded,
 %% and permanent data, which are explicitly discarded.
 %%
 %% Data is always delivered in the order they are buffered.
 %% The temporary data is stored in a queue. Permanent data
 %% is stored in a wheel for performance and to avoid discards.
-%% @end
+
 -module(gen_stage_buffer).
 
--export(
-   [
-    new/1,
-    estimate_size/1,
-    take_count_or_until_permanent/2,
-    store_temporary/3,
-    store_permanent_unless_empty/2
-   ]).
+%% API
+-export([
+         new/1,
+         estimate_size/1,
+         take_count_or_until_permanent/2,
+         store_temporary/3,
+         store_permanent_unless_empty/2
+        ]).
 
 %% @doc Builds a new buffer.
 new(Size) when Size > 0 ->
     {queue:new(), 0, init_wheel(Size)}.
 
-%% @doc
-%% Returns the estimate size of the buffer data.
+%% @doc Returns the estimate size of the buffer data.
 %%
 %% It does not count data on the wheel.
-%% @end
 estimate_size({_, Count, _}) -> Count.
 
-%% @doc
-%% Stores the temporary entries.
+%% @doc Stores the temporary entries.
 %%
 %% keep controls which side to keep, first or last.
 %%
 %% It returns a new buffer, the amount of discarded messages and
 %% any permanent entry that had to be emitted while discarding.
-%% @end
 store_temporary({Queue, Counter, Infos}, Temps, Keep) when is_list(Temps) ->
     {{Excess, Queue1, Counter1}, Perms, Infos1} =
     store_temporary(Keep, Temps, Queue, Counter, capacity_wheel(Infos), Infos),
@@ -78,9 +73,7 @@ queue_last([Temp | R], Queue, Excess, Max, Max, Perms, Wheel) ->
 queue_last([Temp | R], Queue, Excess, Counter, Max, Perms, Wheel) ->
     queue_last(R, queue:in(Temp, Queue), Excess, Counter + 1, Max, Perms, Wheel).
 
-%% @doc
-%% Puts the permanent entry in the buffer unless the buffer is empty.
-%% @end
+%% @doc Puts the permanent entry in the buffer unless the buffer is empty.
 store_permanent_unless_empty(Buffer, Perm) ->
     case Buffer of
         {_Queue, 0, _Infos} ->
@@ -91,11 +84,9 @@ store_permanent_unless_empty(Buffer, Perm) ->
             {ok, {Queue, Count, put_wheel(Infos, Count, Perm)}}
     end.
 
-%% @doc
-%% Take count temporary from the buffer or until we find a permanent.
+%% @doc Take count temporary from the buffer or until we find a permanent.
 %%
 %% Return empty if nothing was taken.
-%% @end
 take_count_or_until_permanent({_Queue, Buffer, _Infos}, Counter) when Buffer =:= 0 orelse Counter =:= 0 ->
     empty;
 take_count_or_until_permanent({Queue, Buffer, Infos}, Counter) ->
