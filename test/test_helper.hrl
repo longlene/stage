@@ -3,4 +3,5 @@
 -define(assertReceive(Guard), ?assert(receive Guard -> true after 5000 -> false end)).
 -define(assertReceived(Guard), ?assert(receive Guard -> true after 0 -> false end)).
 -define(refuteReceived(Guard), ?assertNot(receive Guard -> true after 0 -> false end)).
+-define(refuteReceive(Guard), ?assertNot(receive Guard -> true after 200 -> false end)).
 

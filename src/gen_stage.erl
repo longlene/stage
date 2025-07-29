@@ -99,6 +99,10 @@
          stop/3,
          estimate_buffered_count/1,
          estimate_buffered_count/2,
+         from_list/1,
+         from_list/2,
+         from_fun/1,
+         from_fun/2,
 
          consumer_receive/4,
          consumer_subscribe/4
@@ -980,7 +984,7 @@ producer_demand(#stage{events = Events} = Stage) when is_list(Events) ->
 
 producer_demand(forward, #stage{type = producer_consumer} = Stage) ->
     {noreply, Stage};
-producer_demand(_Mode, #stage{type = Type} = Stage) when type =/= producer ->
+producer_demand(_Mode, #stage{type = Type} = Stage) when Type =/= producer ->
     ErrorMsg = "Demand mode can only be set for producers, gen_stage ~tp is a ~ts",
     error_logger:error_msg(ErrorMsg, [self_name(), Type]),
     {noreply, Stage};
@@ -1373,16 +1377,17 @@ validate_integer(Opts, Key, Default, Min, Max, Infinity) ->
     Value = proplists:get_value(Key, Opts, Default),
     if
         Value =:= infinity andalso Infinity ->
-            {ok, Value, Opts};
+            NewOpts = proplists:delete(Key, Opts),
+            {ok, Value, NewOpts};
         not is_integer(Value) ->
-            ErrorMsg = "expected ~p to be an integer, got: ~p",
-            {error, io_lib:format(ErrorMsg, [Key, Value])};
+            ErrorMsg = "expected :~s to be a non-negative integer or :infinity, got: ~p",
+            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Value])};
         Value < Min ->
-            ErrorMsg = "expected ~p to be equal to or greater than ~p, got: ~p",
-            {error, io_lib:format(ErrorMsg, [Key, Min, Value])};
+            ErrorMsg = "expected :~s to be equal to or greater than ~p, got: ~p",
+            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Min, Value])};
         Value > Max ->
-            ErrorMsg = "expected ~p to be equal to or less than ~p, got: ~p",
-            {error, io_lib:format(ErrorMsg, [Key, Max, Value])};
+            ErrorMsg = "expected :~s to be equal to or less than ~p, got: ~p",
+            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Max, Value])};
         true ->
             NewOpts = proplists:delete(Key, Opts),
             {ok, Value, NewOpts}
@@ -1391,7 +1396,9 @@ validate_integer(Opts, Key, Default, Min, Max, Infinity) ->
 validate_no_opts([]) ->
     ok;
 validate_no_opts(Opts) ->
-    {error, {badarg, Opts}}.
+    UnknownOpts = [io_lib:format("~p: ~p", [K, V]) || {K, V} <- Opts],
+    ErrorMsg = "unknown options [" ++ string:join(UnknownOpts, ", ") ++ "]",
+    {error, ErrorMsg}.
 
 is_transient_shutdown(normal) -> true;
 is_transient_shutdown(shutdown) -> true;
@@ -1451,3 +1458,61 @@ whereis_server({Name, Local}) when is_atom(Name) andalso Local =:= node() ->
     erlang:whereis(Name);
 whereis_server({Name, Node} = Server) when is_atom(Name) andalso is_atom(Node) ->
     Server.
+
+%% @doc
+%% Creates a producer stage from a list.
+%% @end
+-spec from_list([any()]) -> gen_server:on_start().
+from_list(List) ->
+    from_list(List, []).
+
+%% @doc
+%% Creates a producer stage from a list with options.
+%% 
+%% Options:
+%%   - on_cancel: continue | stop - controls behavior when consumers cancel
+%%   - link: boolean() - whether to link the process (default: true)
+%%   - Other standard gen_stage options
+%% @end
+-spec from_list([any()], proplists:proplist()) -> gen_server:on_start().
+from_list(List, Opts) when is_list(List) ->
+    {Link, NewOpts} = case proplists:get_value(link, Opts, true) of
+        true -> {true, proplists:delete(link, Opts)};
+        false -> {false, proplists:delete(link, Opts)}
+    end,
+    
+    case Link of
+        true -> gen_stage_list_producer:start_link({from_list, List}, NewOpts);
+        false -> gen_stage_list_producer:start({from_list, List}, NewOpts)
+    end.
+
+%% @doc
+%% Creates a producer stage from a generator function.
+%% The function should return {value, Item} for each item or 'done' when finished.
+%% @end
+-spec from_fun(function()) -> gen_server:on_start().
+from_fun(Fun) ->
+    from_fun(Fun, []).
+
+%% @doc
+%% Creates a producer stage from a generator function with options.
+%% 
+%% Options:
+%%   - on_cancel: continue | stop - controls behavior when consumers cancel
+%%   - link: boolean() - whether to link the process (default: true)
+%%   - Other standard gen_stage options
+%% @end
+-spec from_fun(function(), proplists:proplist()) -> gen_server:on_start().
+from_fun(Fun, Opts) when is_function(Fun) ->
+    {Link, NewOpts} = case proplists:get_value(link, Opts, true) of
+        true -> {true, proplists:delete(link, Opts)};
+        false -> {false, proplists:delete(link, Opts)}
+    end,
+    
+    case Link of
+        true -> gen_stage_list_producer:start_link(Fun, NewOpts);
+        false -> 
+            %% For now, only support linked processes
+            gen_stage_list_producer:start_link(Fun, NewOpts)
+    end.
+

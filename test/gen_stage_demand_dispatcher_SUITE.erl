@@ -13,7 +13,7 @@ all() ->
     ].
 
 dispatcher(Opts) ->
-    {ok, {[], 0, undefined} = State} = gen_stage_demand_dispatcher:init(Opts),
+    {ok, {[], 0, undefined, false} = State} = gen_stage_demand_dispatcher:init(Opts),
     State.
 
 subscribes_and_cancels(_Config) ->
@@ -22,8 +22,8 @@ subscribes_and_cancels(_Config) ->
     Disp = dispatcher([]),
 
     {ok, 0, Disp1} = gen_stage_demand_dispatcher:subscribe([], {Pid, Ref}, Disp),
-    ?assertEqual(Disp1, {[{0, Pid, Ref}], 0, undefined}),
+    ?assertEqual(Disp1, {[{0, Pid, Ref}], 0, undefined, false}),
 
     {ok, 0, Disp2} = gen_stage_demand_dispatcher:cancel({Pid, Ref}, Disp1),
-    ?assertEqual(Disp2, {[], 0, undefined}).
+    ?assertEqual(Disp2, {[], 0, undefined, false}).
 

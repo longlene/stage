@@ -40,7 +40,12 @@ stop(Stage) ->
 
 % callbacks
 init(Init) ->
-    Init.
+    case Init of
+        ignore -> ignore;
+        {stop, Reason} -> {stop, Reason};
+        unknown -> unknown;  %% Will cause bad_return_value
+        _ -> Init
+    end.
 
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
@@ -71,7 +76,7 @@ handle_subscribe(consumer, Opts, From, State) ->
 
 handle_cancel(Reason, From, State) ->
     case is_pid(State) of
-        true -> erlang:send(State, {producer_canclled, From, Reason});
+        true -> erlang:send(State, {producer_cancelled, From, Reason});
         false -> ok
     end,
     {noreply, [], State}.

@@ -1,20 +1,20 @@
 %% @doc A supervisor that starts children as events flow in.
 %%
-%% A <c>consumer_supervisor</c> can be used as the consumer in a `gen_stage' pipeline.
+%% A consumer_supervisor can be used as the consumer in a gen_stage pipeline.
 %% A new child process will be started per event, where the event is appended
 %% to the arguments in the child specification.
 %%
-%% A `consumer_supervisor' can be attached to a producer by returning
-%% `subscribe_to' from `init/1' or explicitly with `gen_stage:sync_subscribe/3'
-%% and `gen_stage:async_subscribe/2'.
+%% A consumer_supervisor can be attached to a producer by returning
+%% subscribe_to from init/1 or explicitly with gen_stage:sync_subscribe/3
+%% and gen_stage:async_subscribe/2.
 %%
-%% Once subscribed, the supervisor will ask the producer for `max_demand' events
-%% and start child processes as evets arrive. As child processes terminate, the
-%% supervisor will aaccumulate demand and request more events once `min_demand'
-%% is reached. This allows the `consumer_supervisor' to work similar to a pool,
-%% except a child process is started per event. The minimum amout of concurrent
-%% children per producer is specified by `min_demand' and maximum is given
-%% by `max_demand'.
+%% Once subscribed, the supervisor will ask the producer for max_demand events
+%% and start child processes as events arrive. As child processes terminate, the
+%% supervisor will accumulate demand and request more events once min_demand
+%% is reached. This allows the consumer_supervisor to work similar to a pool,
+%% except a child process is started per event. The minimum amount of concurrent
+%% children per producer is specified by min_demand and maximum is given
+%% by max_demand.
 
 -module(consumer_supervisor).
 
@@ -169,7 +169,7 @@ init(State, [Child], Opts) when is_list(Opts) ->
         lists:foldl(
             fun(Key, Acc) ->
                     proplists:delete(Key, Acc)
-            end, Opts, [strategy, max_restarts, max_seconds]),
+            end, Opts, [strategy, max_restarts, max_seconds, max_demand, min_demand]),
     Template = normalize_template(Child),
     NewState = State#state{
                  template = Template,
@@ -368,7 +368,7 @@ terminate_children(Children, #state{template = Template} = State) ->
     {_, _, Restart, Shutdown, _, _} = Template,
     {Pids, Stacks} = monitor_children(Children, Restart),
     Size = map_size(Pids),
-    Stacks =
+    FinalStacks =
     case Shutdown of
         brutal_kill ->
             maps:map(
@@ -393,7 +393,7 @@ terminate_children(Children, #state{template = Template} = State) ->
     lists:foreach(
       fun({Pid, Reason}) ->
               report_error(shutdown_error, Reason, Pid, undefined, Template, State)
-      end, Stacks),
+      end, maps:to_list(FinalStacks)),
     ok.
 
 monitor_children(Children, Restart) ->

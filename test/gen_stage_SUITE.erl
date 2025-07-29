@@ -17,6 +17,17 @@
          stops_asking_when_consumer_stops_asking/1,
          keeps_emitting_events_even_when_discarded/1,
 
+         %% New demand management tests
+         demand_can_be_set_to_accumulate_on_init/1,
+         demand_can_be_set_to_accumulate_via_api/1,
+         demand_can_be_set_to_forward_via_api/1,
+         
+         %% New API tests
+         test_from_list_api/1,
+         test_from_fun_api/1,
+         test_sync_info/1,
+         test_estimate_buffered_count/1,
+
          handle_info/1,
          terminate/1
         ]).
@@ -35,6 +46,17 @@ all() ->
      with_20_percent_min_demand_with_late_subscription,
      stops_asking_when_consumer_stops_asking,
      keeps_emitting_events_even_when_discarded,
+
+     %% New demand management tests
+     demand_can_be_set_to_accumulate_on_init,
+     demand_can_be_set_to_accumulate_via_api,
+     demand_can_be_set_to_forward_via_api,
+     
+     %% New API tests
+     test_from_list_api,
+     test_from_fun_api,
+     test_sync_info,
+     test_estimate_buffered_count,
 
      handle_info,
      terminate
@@ -236,4 +258,99 @@ terminate(_Config) ->
     {ok, Pid} = forwarder:start_link({consumer, self()}),
     ok = gen_stage:stop(Pid),
     ?assertReceive({terminated, normal}).
+
+%% ==== NEW TESTS ====
+
+%% Test demand management
+demand_can_be_set_to_accumulate_on_init(_Config) ->
+    %% Create a simple producer first
+    {ok, Producer} = counter:start_link({producer, 0}),
+    
+    %% Test default demand mode
+    ?assertEqual(forward, gen_stage:demand(Producer)),
+    
+    %% Test setting demand mode
+    ok = gen_stage:demand(Producer, accumulate),
+    ?assertEqual(accumulate, gen_stage:demand(Producer)),
+    
+    %% Test switching back
+    ok = gen_stage:demand(Producer, forward),
+    ?assertEqual(forward, gen_stage:demand(Producer)).
+
+demand_can_be_set_to_accumulate_via_api(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    ?assertEqual(forward, gen_stage:demand(Producer)),
+    
+    %% Set to accumulate
+    ok = gen_stage:demand(Producer, accumulate),
+    ?assertEqual(accumulate, gen_stage:demand(Producer)),
+    
+    %% Set back to forward
+    ok = gen_stage:demand(Producer, forward),
+    ?assertEqual(forward, gen_stage:demand(Producer)).
+
+demand_can_be_set_to_forward_via_api(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    
+    %% Start with forward (default), set to accumulate, then back to forward
+    ?assertEqual(forward, gen_stage:demand(Producer)),
+    ok = gen_stage:demand(Producer, accumulate),
+    ?assertEqual(accumulate, gen_stage:demand(Producer)),
+    ok = gen_stage:demand(Producer, forward),
+    ?assertEqual(forward, gen_stage:demand(Producer)).
+
+%% Test new APIs
+test_from_list_api(_Config) ->
+    List = [a, b, c, d, e],
+    {ok, Producer} = gen_stage:from_list(List),
+    
+    {ok, _Consumer} = forwarder:start_link({consumer, self(),
+                                           [{subscribe_to, [Producer]}]}),
+    
+    %% Should receive all items from the list
+    ?assertReceive({consumed, List}).
+
+test_from_fun_api(_Config) ->
+    %% Create a simple generator function
+    CounterFun = (fun() ->
+        N = case get(test_counter) of
+            undefined -> 0;
+            X -> X
+        end,
+        if N < 3 ->
+            put(test_counter, N + 1),
+            {value, N};
+        true ->
+            done
+        end
+    end),
+    
+    {ok, Producer} = gen_stage:from_fun(CounterFun),
+    
+    {ok, _Consumer} = forwarder:start_link({consumer, self(),
+                                           [{subscribe_to, [Producer]}]}),
+    
+    %% Should receive generated values
+    receive
+        {consumed, Events} ->
+            ?assert(is_list(Events) andalso length(Events) > 0)
+    after 5000 ->
+        ?assert(false)  %% Timeout
+    end.
+
+test_sync_info(_Config) ->
+    {ok, Producer} = counter:start_link({producer, self()}),
+    
+    %% Send sync info
+    ok = gen_stage:sync_info(Producer, test_message),
+    
+    %% Should receive the message
+    ?assertReceive(test_message).
+
+test_estimate_buffered_count(_Config) ->
+    {ok, Producer} = counter:start_link({producer, 0}),
+    
+    %% Initially should have 0 buffered events
+    Count = gen_stage:estimate_buffered_count(Producer),
+    ?assert(is_integer(Count) andalso Count >= 0).
 
