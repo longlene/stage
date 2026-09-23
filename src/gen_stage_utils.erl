@@ -49,7 +49,7 @@ validate_in(Opts, Key, Default, Values) ->
 %% @doc
 %% Validates an integer.
 %% @end
--spec validate_integer(proplists:proplist(), atom(), any(), integer(), integer(), boolean()) -> 
+-spec validate_integer(proplists:proplist(), atom(), any(), integer() | infinity, integer() | infinity, boolean()) -> 
     {ok, integer() | infinity, proplists:proplist()} | {error, string()}.
 validate_integer(Opts, Key, Default, Min, Max, AllowInfinity) ->
     Value = proplists:get_value(Key, Opts, Default),
@@ -102,8 +102,13 @@ self_name() ->
 
 %% @doc
 %% Splits a list of events into messages configured by min, max, and demand.
+%%
+%% The From argument is only used for the excess-events log message; it is
+%% the subscription identifier (a plain pid in regular consumers, a nested
+%% {MonitorRef, InnerRef} tuple in gen_stage_stream subscriptions).
 %% @end
--spec split_batches([any()], pid(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
+-spec split_batches([any()], pid() | {pid(), reference()} | {pid(), {reference(), reference()}},
+                     non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
     {non_neg_integer(), [{[any()], non_neg_integer()}]}.
 split_batches(Events, From, Min, Max, Demand) ->
     split_batches(Events, From, Min, Max, Demand, Demand, []).

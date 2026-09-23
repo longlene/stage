@@ -92,6 +92,11 @@ take_count_or_until_permanent({_Queue, Buffer, _Infos}, Counter) when Buffer =:=
 take_count_or_until_permanent({Queue, Buffer, Infos}, Counter) ->
     take_count_or_until_permanent(Counter, [], Queue, Buffer, Infos).
 
+take_count_or_until_permanent(0, Temps, Queue, Buffer, Infos) when is_reference(Infos) ->
+    %% Permanents right after the last taken event must be emitted now,
+    %% otherwise they would wait until the next demand.
+    {NewQueue, NewBuffer, Perms} = take_permanents(Queue, Buffer, Infos, []),
+    {ok, {NewQueue, NewBuffer, Infos}, 0, lists:reverse(Temps), lists:reverse(Perms)};
 take_count_or_until_permanent(0, Temps, Queue, Buffer, Infos) ->
     {ok, {Queue, Buffer, Infos}, 0, lists:reverse(Temps), []};
 take_count_or_until_permanent(Counter, Temps, Queue, 0, Infos) ->
@@ -100,7 +105,8 @@ take_count_or_until_permanent(Counter, Temps, Queue, Buffer, Infos) when is_refe
     {{value, Value}, NewQueue} = queue:out(Queue),
     case Value of
         {Infos, Perm} ->
-            {ok, {NewQueue, Buffer - 1, Infos}, Counter, lists:reverse(Temps), [Perm]};
+            {NewQueue1, NewBuffer, Perms} = take_permanents(NewQueue, Buffer - 1, Infos, [Perm]),
+            {ok, {NewQueue1, NewBuffer, Infos}, Counter, lists:reverse(Temps), lists:reverse(Perms)};
         Temp ->
             take_count_or_until_permanent(Counter - 1, [Temp | Temps], NewQueue, Buffer - 1, Infos)
     end;
@@ -113,6 +119,15 @@ take_count_or_until_permanent(Counter, Temps, Queue, Buffer, Infos) ->
             take_count_or_until_permanent(Counter - 1, [Temp | Temps], NewQueue, Buffer - 1, NewInfos)
     end.
 
+%% Takes all consecutive permanents at the head of the queue.
+take_permanents(Queue, Buffer, Infos, Perms) ->
+    case queue:peek(Queue) of
+        {value, {Infos, Perm}} ->
+            {{value, _}, NewQueue} = queue:out(Queue),
+            take_permanents(NewQueue, Buffer - 1, Infos, [Perm | Perms]);
+        _ ->
+            {Queue, Buffer, Perms}
+    end.
 
 %% Wheel helpers
 init_wheel(infinity) -> make_ref();
@@ -134,7 +149,7 @@ pop_and_increment_wheel({Pos, Max, Wheel}) ->
     case maps:take(Pos, Wheel) of
         {Perms, NewWheel} ->
             MaybeTriplet = if NewWheel =:= #{} -> Max; true -> {NewPos, Max, NewWheel} end,
-            {ok, Perms, MaybeTriplet};
+            {ok, lists:reverse(Perms), MaybeTriplet};
         error ->
             {error, {NewPos, Max, Wheel}}
     end;

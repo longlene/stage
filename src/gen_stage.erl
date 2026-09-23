@@ -97,6 +97,9 @@
          reply/2,
          stop/1,
          stop/3,
+         whereis/1,
+         stream/1,
+         stream/2,
          estimate_buffered_count/1,
          estimate_buffered_count/2,
          from_list/1,
@@ -108,7 +111,8 @@
          consumer_subscribe/4
         ]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3, format_status/1]).
 
 -define(TIMEOUT, 5000).
 
@@ -171,11 +175,21 @@
 producer_and_producer_consumer_option() | consumer_and_producer_consumer_option().
 
 -type stage() :: pid() | atom() | {global, term()} | {via, module(), term()} | {atom(), node()}.
--export_type([stage/0]).
+-export_type([
+    stage/0,
+    on_start/0,
+    from/0,
+    subscription_option/0,
+    subscription_options/0,
+    subscription_tag/0
+   ]).
 
 -type subscription_tag() :: reference().
 
--type from() :: {pid(), subscription_tag()}.
+-type from() :: {pid(), any()}.
+%% The first element is the consumer pid, the second is the subscription
+%% tag: a plain reference for regular subscriptions, or a nested
+%% {MonitorRef, InnerRef} tuple for gen_stage_stream subscriptions.
 
 %% Invoked when the server is started.
 %%
@@ -410,16 +424,32 @@ demand(Stage) ->
     call(Stage, '$demand').
 
 %% @doc
+%% Looks up the pid of a stage by name (pid, atom, {global, Name},
+%% {via, Mod, Name} or {Name, Node}). Returns `undefined' when the
+%% stage is not alive.
+%%
+%% Note: this shadows the auto-imported `erlang:whereis/1' BIF (only for
+%% atom names) within this module; call `erlang:whereis/1' explicitly if
+%% the BIF is needed elsewhere in `gen_stage.erl'.
+-spec whereis(stage()) -> pid() | undefined.
+whereis(Stage) ->
+    case whereis_server(Stage) of
+        undefined -> undefined;
+        Pid when is_pid(Pid) -> Pid;
+        _ -> undefined
+    end.
+
+%% @doc
 %% Sets the demand mode for a producer.
 %% When `forward', the demand is always forwarded to the `handle_demand'
-%% callback. When `accumulate', demand is accumulated until its mode is
-%% set to `forward'. This is useful as a synchronization mechanism, where
-%% the demand is accumulated until all consumers are subscribed. Defaults
-%% to `forward'.
+%% callback. When `accumulate', both demand and events are accumulated
+%% until its mode is set to `forward'. This is useful as a
+%% synchronization mechanism, where the demand is accumulated until all
+%% consumers are subscribed. Defaults to `forward'.
 %%
 %% This command is asynchronous.
 -spec demand(stage(), forward | accumulate) -> ok.
-demand(Stage, Mode) ->
+demand(Stage, Mode) when Mode =:= forward orelse Mode =:= accumulate ->
     cast(Stage, {'$demand', Mode}).
 
 %% @doc
@@ -470,7 +500,7 @@ sync_resubscribe(Stage, SubscriptionTag, Reason, Opts, Timeout) ->
 sync_subscribe(Stage, Cancel, Opts, Timeout) ->
     case proplists:lookup(to, Opts) of
         none ->
-            throw(iolist_to_binary(io_lib:format("expected to argument in sync_(re)subscribe", [])));
+            error("expected to argument in sync_(re)subscribe");
         {to, To} ->
             NewOpts = proplists:delete(to, Opts),
             call(Stage, {'$subscribe', Cancel, To, NewOpts}, Timeout)
@@ -513,7 +543,7 @@ async_resubscribe(Stage, SubscriptionTag, Reason, Opts) ->
 async_subscribe(Stage, Cancel, Opts) ->
     case proplists:lookup(to, Opts) of
         none ->
-            throw(iolist_to_binary(io_lib:format("expected to argument in async_(re)subscribe", [])));
+            error("expected to argument in async_(re)subscribe");
         {to, To} ->
             NewOpts = proplists:delete(to, Opts),
             cast(Stage, {'$subscribe', Cancel, To, NewOpts})
@@ -703,13 +733,13 @@ init({Mod, Args}) ->
 init_producer(Mod, Opts, State) ->
     case init_dispatcher(Opts) of
         {ok, DispatcherMod, DispatcherState, Opts1} ->
-            case validate_integer(Opts1, buffer_size, 10000, 0, infinity, true) of
+            case gen_stage_utils:validate_integer(Opts1, buffer_size, 10000, 0, infinity, true) of
                 {ok, BufferSize, Opts2} ->
-                    case validate_in(Opts2, buffer_keep, last, [first, last]) of
+                    case gen_stage_utils:validate_in(Opts2, buffer_keep, last, [first, last]) of
                         {ok, BufferKeep, Opts3} ->
-                            case validate_in(Opts3, demand, forward, [accumulate, forward]) of
+                            case gen_stage_utils:validate_in(Opts3, demand, forward, [accumulate, forward]) of
                                 {ok, Demand, Opts4} ->
-                                    case validate_no_opts(Opts4) of
+                                    case gen_stage_utils:validate_no_opts(Opts4) of
                                         ok ->
                                             Events =
                                             case Demand of
@@ -761,13 +791,13 @@ init_dispatcher(Opts) ->
 init_producer_consumer(Mod, Opts, State) ->
     case init_dispatcher(Opts) of
         {ok, DispatcherMod, DispatcherState, Opts1} ->
-            case validate_list(Opts1, subscribe_to, []) of
+            case gen_stage_utils:validate_list(Opts1, subscribe_to, []) of
                 {ok, SubscribeTo, Opts2} ->
-                    case validate_integer(Opts2, buffer_size, infinity, 0, infinity, true) of
+                    case gen_stage_utils:validate_integer(Opts2, buffer_size, infinity, 0, infinity, true) of
                         {ok, BufferSize, Opts3} ->
-                            case validate_in(Opts3, buffer_keep, last, [first, last]) of
+                            case gen_stage_utils:validate_in(Opts3, buffer_keep, last, [first, last]) of
                                 {ok, BufferKeep, Opts4} ->
-                                    case validate_no_opts(Opts4) of
+                                    case gen_stage_utils:validate_no_opts(Opts4) of
                                         ok ->
                                             Stage = #stage{
                                                        mod = Mod,
@@ -797,9 +827,9 @@ init_producer_consumer(Mod, Opts, State) ->
     end.
 
 init_consumer(Mod, Opts, State) ->
-    case validate_list(Opts, subscribe_to, []) of
+    case gen_stage_utils:validate_list(Opts, subscribe_to, []) of
         {ok, SubscribeTo, NewOpts} ->
-            case validate_no_opts(NewOpts) of
+            case gen_stage_utils:validate_no_opts(NewOpts) of
                 ok ->
                     Stage = #stage{mod = Mod, state = State, type = consumer},
                     consumer_init_subscribe(SubscribeTo, Stage);
@@ -818,7 +848,17 @@ handle_call({'$subscribe', Current, To, Opts}, _From, Stage) ->
     consumer_subscribe(Current, To, Opts, Stage);
 handle_call('$estimate_buffered_count', _From, Stage) ->
     producer_estimate_buffered_count(Stage);
-handle_call(Msg, From, #stage{mod = Mod, state = State} = Stage) ->
+handle_call(Msg, From, Stage) ->
+    #stage{mod = Mod, state = State} = Stage,
+    case erlang:function_exported(Mod, handle_call, 3) of
+        false ->
+            %% Elixir's default implementation for `use GenStage'
+            {stop, {bad_call, Msg}, Stage};
+        true ->
+            handle_call_cb(Msg, From, Mod, State, Stage)
+    end.
+
+handle_call_cb(Msg, From, Mod, State, Stage) ->
     case Mod:handle_call(Msg, From, State) of
         {reply, Reply, Events, NewState} when is_list(Events) ->
             NewStage = dispatch_events(Events, length(Events), Stage),
@@ -843,8 +883,14 @@ handle_cast({'$subscribe', Current, To, Opts}, Stage) ->
         {stop, Reason, _, NewStage} -> {stop, Reason, NewStage};
         {stop, _, _} = Stop -> Stop
     end;
-handle_cast(Msg, #stage{state = State} = Stage) ->
-    noreply_callback(handle_cast, [Msg, State], Stage).
+handle_cast(Msg, #stage{mod = Mod, state = State} = Stage) ->
+    case erlang:function_exported(Mod, handle_cast, 2) of
+        false ->
+            %% Elixir's default implementation for `use GenStage'
+            {stop, {bad_cast, Msg}, Stage};
+        true ->
+            noreply_callback(handle_cast, [Msg, State], Stage)
+    end.
 
 handle_info({'DOWN', Ref, _, _, Reason} = Msg, Stage) ->
     #stage{producers = Producers, monitors = Monitors, state = State} = Stage,
@@ -861,13 +907,13 @@ handle_info({'DOWN', Ref, _, _, Reason} = Msg, Stage) ->
     end;
 handle_info({'$gen_producer', _, _} = Msg, #stage{type = consumer} = Stage) ->
     ErrMsg = "gen_stage consumer ~tp received $gen_producer message: ~tp~n",
-    error_logger:error_msg(ErrMsg, [self_name(), Msg]),
+    error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Msg]),
     {noreply, Stage};
 handle_info({'$gen_producer', {ConsumerPid, Ref} = From, {subscribe, Cancel, Opts}}, #stage{consumers = Consumers} = Stage) ->
     case Consumers of
         #{Ref := _} ->
             ErrMsg = "gen_stage producer ~tp received duplicated subscription from: ~tp~n",
-            error_logger:error_msg(ErrMsg, [self_name(), From]),
+            error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), From]),
             Msg = {'$gen_consumer', {self(), Ref}, {cancel, duplicated_subscription}},
             send_noconnect(ConsumerPid, Msg),
             {noreply, Stage};
@@ -895,7 +941,7 @@ handle_info({'$gen_producer', {_, Ref}, {cancel, Reason}}, Stage) ->
     producer_cancel(Ref, cancel, Reason, Stage);
 handle_info({'$gen_consumer', _, _} = Msg, #stage{type = producer} = Stage) ->
     ErrMsg = "stage producer ~tp received $gen_consumer message: ~tp~n",
-    error_logger:error_msg(ErrMsg, [self_name(), Msg]),
+    error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Msg]),
     {noreply, Stage};
 handle_info({'$gen_consumer', {ProducerPid, Ref}, Events}, #stage{type = producer_consumer, events = {Queue, Counter}, producers = Producers} = Stage) when is_list(Events) ->
     case maps:is_key(Ref, Producers) of
@@ -939,7 +985,60 @@ code_change(OldVsn, #stage{mod = Mod, state = State} = Stage, Extra) ->
             {ok, Stage}
     end.
 
-% format_status
+%% New-style `gen_server:format_status/1' callback (OTP 27+).
+%% It delegates to the user module's `format_status/2' when exported,
+%% mirroring Elixir GenStage's `format_status/2'.
+%%
+%% Per `gen:format_status/4', the returned map must retain every key
+%% present in `Status' (it is merged back in and the key counts must
+%% match), so we update the existing `state' entry in place instead of
+%% wrapping the result under a fresh key.
+format_status(Status) ->
+    Stage = maps:get(state, Status),
+    #stage{mod = Mod, state = State} = Stage,
+    Opt =
+    case maps:is_key(reason, Status) of
+        true -> terminate;  % error report path (gen_server:format_status on crash)
+        false -> normal    % sys:get_status path
+    end,
+    Default =
+    case Opt of
+        normal -> [{data, [{"State", State}] ++ format_status_for_stage(Stage)}];
+        terminate -> State
+    end,
+    NewState =
+    case erlang:function_exported(Mod, format_status, 2) of
+        true ->
+            try Mod:format_status(Opt, [get(), State]) of
+                Result -> ensure_status_list(Result)
+            catch _:_ -> Default
+            end;
+        false ->
+            Default
+    end,
+    Status#{state => NewState}.
+
+ensure_status_list(Result) when is_list(Result) ->
+    Result;
+ensure_status_list(Result) ->
+    [Result].
+
+format_status_for_stage(#stage{type = producer, consumers = Consumers, buffer = Buffer,
+                              dispatcher_mod = DispatcherMod} = _Stage) ->
+    ConsumerPids = [Pid || {_Ref, {Pid, _MonRef}} <- maps:to_list(Consumers)],
+    [{"Stage", producer}, {"Dispatcher", DispatcherMod},
+     {"Consumers", ConsumerPids}, {"Buffer size", gen_stage_buffer:estimate_size(Buffer)}];
+format_status_for_stage(#stage{type = producer_consumer, producers = Producers,
+                               consumers = Consumers, buffer = Buffer,
+                               dispatcher_mod = DispatcherMod} = _Stage) ->
+    ProducerPids = [Pid || {_Ref, {Pid, _Cancel, _Demand}} <- maps:to_list(Producers)],
+    ConsumerPids = [Pid || {_Ref, {Pid, _MonRef}} <- maps:to_list(Consumers)],
+    [{"Stage", producer_consumer}, {"Dispatcher", DispatcherMod},
+     {"Producers", ProducerPids}, {"Consumers", ConsumerPids},
+     {"Buffer size", gen_stage_buffer:estimate_size(Buffer)}];
+format_status_for_stage(#stage{type = consumer, producers = Producers}) ->
+    ProducerPids = [Pid || {_Ref, {Pid, _Cancel, _Demand}} <- maps:to_list(Producers)],
+    [{"Stage", consumer}, {"Producers", ProducerPids}].
 
 %% Shared helpers
 noreply_callback(handle_info, [Msg, State], #stage{mod = Mod} = Stage) ->
@@ -986,7 +1085,7 @@ producer_demand(forward, #stage{type = producer_consumer} = Stage) ->
     {noreply, Stage};
 producer_demand(_Mode, #stage{type = Type} = Stage) when Type =/= producer ->
     ErrorMsg = "Demand mode can only be set for producers, gen_stage ~tp is a ~ts",
-    error_logger:error_msg(ErrorMsg, [self_name(), Type]),
+    error_logger:error_msg(ErrorMsg, [gen_stage_utils:self_name(), Type]),
     {noreply, Stage};
 producer_demand(forward, #stage{events = Events} = Stage) ->
     NewStage = Stage#stage{events = forward},
@@ -994,10 +1093,10 @@ producer_demand(forward, #stage{events = Events} = Stage) ->
         is_list(Events) ->
             Fun =
             fun
-                (D, {noreply, #stage{state = State} = StageAcc}) ->
-                        noreply_callback(handle_demand, [D, State], StageAcc);
-                    (D, {noreply, #stage{state = State} = StageAcc, _}) ->
-                        noreply_callback(handle_demand, [D, State], StageAcc);
+                (Event, {noreply, StageAcc}) ->
+                        handle_accumulated_event(Event, StageAcc);
+                    (Event, {noreply, StageAcc, _}) ->
+                        handle_accumulated_event(Event, StageAcc);
                     (_, {stop, _, _} = Acc) ->
                         Acc
             end,
@@ -1074,21 +1173,32 @@ handle_dispatcher_result({ok, Counter, DispatcherState}, Stage) ->
             #stage{events = {Queue1, Counter2}} = Stage2,
             take_pc_events(Queue1, Counter2, Stage2);
         _ ->
-            case take_from_buffer(Counter, Stage#stage{dispatcher_state = DispatcherState}) of
-                {ok, 0, NewStage} ->
-                    {noreply, NewStage};
-                {ok, NewCounter, #stage{events = forward, state = State} = NewStage} ->
-                    noreply_callback(handle_demand, [NewCounter, State], NewStage);
-                {ok, NewCounter, #stage{events = Events} = NewStage} when is_list(Events) ->
-                    {noreply, NewStage#stage{events = [NewCounter | Events]}}
-            end
+            take_from_buffer_or_handle_demand(Counter, Stage#stage{dispatcher_state = DispatcherState})
     end.
+
+take_from_buffer_or_handle_demand(Counter, Stage) ->
+    case take_from_buffer(Counter, Stage) of
+        {ok, 0, NewStage} ->
+            {noreply, NewStage};
+        {ok, NewCounter, #stage{events = forward, state = State} = NewStage} ->
+            noreply_callback(handle_demand, [NewCounter, State], NewStage);
+        {ok, NewCounter, #stage{events = Events} = NewStage} when is_list(Events) ->
+            {noreply, NewStage#stage{events = [{demand, NewCounter} | Events]}}
+    end.
+
+handle_accumulated_event({demand, D}, Stage) ->
+    take_from_buffer_or_handle_demand(D, Stage);
+handle_accumulated_event({dispatch, Events, Len}, Stage) ->
+    {noreply, dispatch_events(Events, Len, Stage)}.
 
 dispatch_events([], _Len, Stage) ->
     Stage;
+%% We don't dispatch when we are accumulating demand
+dispatch_events(Events, Len, #stage{type = producer, events = Acc} = Stage) when is_list(Acc) ->
+    Stage#stage{events = [{dispatch, Events, Len} | Acc]};
 dispatch_events(Events, _Len, #stage{type = consumer} = Stage) ->
     ErrMsg = "stage consumer ~tp cannot dispatch events (an empty list must be returned): ~tp~n",
-    error_logger:error_msg(ErrMsg, [self_name(), Events]),
+    error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Events]),
     Stage;
 dispatch_events(Events, _Len, #stage{consumers = Consumers} = Stage) when map_size(Consumers) =:= 0 ->
     buffer_events(Events, Stage);
@@ -1125,7 +1235,7 @@ buffer_events(Events, #stage{mod = Mod, buffer = Buffer, buffer_keep = Keep, sta
             case maybe_format_discarded(Mod, Excess, State) of
                 true ->
                     ErrMsg = "stage producer ~tp has discarded ~tp events from buffer",
-                    error_logger:warning_msg(ErrMsg, [self_name(), Excess]);
+                    error_logger:warning_msg(ErrMsg, [gen_stage_utils:self_name(), Excess]);
                 false ->
                     ok
             end
@@ -1134,7 +1244,7 @@ buffer_events(Events, #stage{mod = Mod, buffer = Buffer, buffer_keep = Keep, sta
 
 producer_estimate_buffered_count(#stage{type = consumer} = Stage) ->
     ErrorMsg = "Buffered count can only be requested for producers, gen_stage ~tp is a consumer",
-    error_logger:error_msg(ErrorMsg, [self_name()]),
+    error_logger:error_msg(ErrorMsg, [gen_stage_utils:self_name()]),
     {reply, 0, Stage};
 producer_estimate_buffered_count(#stage{buffer = Buffer} = Stage) ->
     {reply, gen_stage_buffer:estimate_size(Buffer), Stage}.
@@ -1181,7 +1291,7 @@ consumer_init_subscribe(Producers, Stage) ->
     lists:foldl(Fun, {ok, Stage}, Producers).
 
 consumer_receive({_, Ref} = From, {ProducerId, Cancel, {Demand, Min, Max}}, Events, Stage) ->
-    {NewDemand, Batches} = split_batches(Events, From, Min, Max, Demand),
+    {NewDemand, Batches} = gen_stage_utils:split_batches(Events, From, Min, Max, Demand),
     NewProducers = maps:put(Ref, {ProducerId, Cancel, {NewDemand, Min, Max}}, Stage#stage.producers),
     {Batches, Stage#stage{producers = NewProducers}};
 consumer_receive(_, {_, _, manual}, Events, Stage) ->
@@ -1212,16 +1322,29 @@ consumer_subscribe({To, Opts}, Stage) when is_list(Opts) ->
 consumer_subscribe(To, Stage) ->
     consumer_subscribe(undefined, To, [], Stage).
 
-consumer_subscribe(_Cancel, To, _Opts, #stage{type = producer} = Stage) ->
-    ErrMsg = "stage producer ~tp cannot be subscribed to another stage: ~tp~n",
-    error_logger:error_msg(ErrMsg, [self_name(), To]),
-    {reply, {error, not_a_consumer}, Stage};
-consumer_subscribe(Current, To, Opts, Stage) ->
-    case validate_integer(Opts, max_demand, 1000, 1, infinity, false) of
+consumer_subscribe(Cancel, To, Opts, Stage) ->
+    case Stage of
+        #stage{type = producer} ->
+            %% A producer stage cannot subscribe to another stage.
+            ErrMsg = "stage producer ~tp cannot be subscribed to another stage: ~tp~n",
+            error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), To]),
+            {reply, {error, not_a_consumer}, Stage};
+        _ ->
+            case is_list(Opts) of
+                false ->
+                    {reply, {error, {bad_opts, "expected Opts to be a list"}}, Stage};
+                true ->
+                    consumer_subscribe_opts(Cancel, To, Opts, Stage)
+            end
+    end.
+
+%% @private
+consumer_subscribe_opts(Current, To, Opts, Stage) ->
+    case gen_stage_utils:validate_integer(Opts, max_demand, 1000, 1, infinity, false) of
         {ok, Max, _} ->
-            case validate_integer(Opts, min_demand, Max div 2, 0, Max - 1, false) of
+            case gen_stage_utils:validate_integer(Opts, min_demand, Max div 2, 0, Max - 1, false) of
                 {ok, Min, _} ->
-                    case validate_in(Opts, cancel, permanent, [temporary, transient, permanent]) of
+                    case gen_stage_utils:validate_in(Opts, cancel, permanent, [temporary, transient, permanent]) of
                         {ok, Cancel, _} ->
                             Producer = whereis_server(To),
                             if
@@ -1237,17 +1360,17 @@ consumer_subscribe(Current, To, Opts, Stage) ->
                             end;
                         {error, Msg} ->
                             ErrMsg = "stage consumer ~tp subscribe received invalid option: ~ts~n",
-                            error_logger:error_msg(ErrMsg, [self_name(), Msg]),
+                            error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Msg]),
                             {reply, {error, {bad_opts, Msg}}, Stage}
                     end;
                 {error, Msg} ->
                     ErrMsg = "stage consumer ~tp subscribe received invalid option: ~ts~n",
-                    error_logger:error_msg(ErrMsg, [self_name(), Msg]),
+                    error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Msg]),
                     {reply, {error, {bad_opts, Msg}}, Stage}
             end;
         {error, Msg} ->
             ErrMsg = "stage consumer ~tp subscribe received invalid option: ~ts~n",
-            error_logger:error_msg(ErrMsg, [self_name(), Msg]),
+            error_logger:error_msg(ErrMsg, [gen_stage_utils:self_name(), Msg]),
             {reply, {error, {bad_opts, Msg}}, Stage}
     end.
 
@@ -1292,14 +1415,14 @@ schedule_cancel(Mode, KindReason, ProducerRef, Stage) ->
 invoke_cancel(Mode, {_, Reason} = KindReason, {Pid, _} = ProducerRef, #stage{state = State} = Stage) ->
     case noreply_callback(handle_cancel, [KindReason, ProducerRef, State], Stage) of
         {noreply, NewStage} ->
-            case Mode =:= permanent orelse (Mode =:= transient andalso (not is_transient_shutdown(Reason))) of
+            case Mode =:= permanent orelse (Mode =:= transient andalso (not gen_stage_utils:is_transient_shutdown(Reason))) of
                 true ->
                     case Reason of
                         already_subscribed ->
                             {noreply, NewStage};
                         _ ->
                             ErrMsg = "stage consumer ~tp is stopping after receiving cancel from producer ~tp with reason: ~tp~n",
-                            error_logger:info_msg(ErrMsg, [self_name(), Pid, Reason]),
+                            error_logger:info_msg(ErrMsg, [gen_stage_utils:self_name(), Pid, Reason]),
                             {stop, Reason, Stage}
                     end;
                 false ->
@@ -1354,98 +1477,6 @@ take_pc_events(Queue, Counter, Stage) ->
     {noreply, Stage#stage{events = {Queue, Counter}}}.
 
 
-validate_list(Opts, Key, Default) ->
-    case proplists:get_value(Key, Opts, Default) of
-        Value when is_list(Value) ->
-            NewOpts = proplists:delete(Key, Opts),
-            {ok, Value, NewOpts};
-        Value ->
-            {error, io_lib:format("expected ~p to be a list, got: ~p", [Key, Value])}
-    end.
-
-validate_in(Opts, Key, Default, Values) ->
-    Value = proplists:get_value(Key, Opts, Default),
-    case lists:member(Value, Values) of
-        true ->
-            NewOpts = proplists:delete(Key, Opts),
-            {ok, Value, NewOpts};
-        false ->
-            {error, io_lib:format("expected ~p to be one of ~p, got: ~p", [Key, Values, Value])}
-    end.
-
-validate_integer(Opts, Key, Default, Min, Max, Infinity) ->
-    Value = proplists:get_value(Key, Opts, Default),
-    if
-        Value =:= infinity andalso Infinity ->
-            NewOpts = proplists:delete(Key, Opts),
-            {ok, Value, NewOpts};
-        not is_integer(Value) ->
-            ErrorMsg = "expected :~s to be a non-negative integer or :infinity, got: ~p",
-            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Value])};
-        Value < Min ->
-            ErrorMsg = "expected :~s to be equal to or greater than ~p, got: ~p",
-            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Min, Value])};
-        Value > Max ->
-            ErrorMsg = "expected :~s to be equal to or less than ~p, got: ~p",
-            {error, io_lib:format(ErrorMsg, [atom_to_list(Key), Max, Value])};
-        true ->
-            NewOpts = proplists:delete(Key, Opts),
-            {ok, Value, NewOpts}
-    end.
-
-validate_no_opts([]) ->
-    ok;
-validate_no_opts(Opts) ->
-    UnknownOpts = [io_lib:format("~p: ~p", [K, V]) || {K, V} <- Opts],
-    ErrorMsg = "unknown options [" ++ string:join(UnknownOpts, ", ") ++ "]",
-    {error, ErrorMsg}.
-
-is_transient_shutdown(normal) -> true;
-is_transient_shutdown(shutdown) -> true;
-is_transient_shutdown({shutdown, _}) -> true;
-is_transient_shutdown(_) -> false.
-
-self_name() ->
-    case process_info(self(), registered_name) of
-        {registered_name, Name} when is_atom(Name) -> Name;
-        _ -> self()
-    end.
-
-split_batches(Events, From, Min, Max, Demand) ->
-    split_batches(Events, From, Min, Max, Demand, Demand, []).
-
-split_batches([], _From, _Min, _Max, _OldDemand, NewDemand, Batches) ->
-    {NewDemand, lists:reverse(Batches)};
-split_batches(Events, From, Min, Max, OldDemand, NewDemand, Batches) ->
-    {NewEvents, Batch, BatchSize} = split_events(Events, Max - Min, 0, []),
-    {OldDemand1, BatchSize1} =
-    case OldDemand - BatchSize of
-        Diff when Diff < 0 ->
-            ErrorMsg = "gen_stage consumer ~tp has received ~tp events in excess from: ~tp~n",
-            error_logger:error_msg(ErrorMsg, [self_name(), abs(Diff), From]),
-            {0, OldDemand};
-        Diff ->
-            {Diff, BatchSize}
-    end,
-
-    % In case we've reached min, we will ask for more events
-    {NewDemand1, BatchSize2} =
-    case NewDemand - BatchSize1 of
-        Diff1 when Diff1 =< Min ->
-            {Max, Max - Diff1};
-        Diff1 ->
-            {Diff1, 0}
-    end,
-    split_batches(NewEvents, From, Min, Max, OldDemand1, NewDemand1, [{Batch,  BatchSize2} | Batches]).
-
-split_events(Events, Limit, Limit, Acc) ->
-    {Events, lists:reverse(Acc), Limit};
-split_events([], _Limit, Counter, Acc) ->
-    {[], lists:reverse(Acc), Counter};
-split_events([Event | Events], Limit, Counter, Acc) ->
-    split_events(Events, Limit, Counter + 1, [Event | Acc]).
-
-
 whereis_server(Pid) when is_pid(Pid) ->
     Pid;
 whereis_server(Name) when is_atom(Name) ->
@@ -1462,7 +1493,7 @@ whereis_server({Name, Node} = Server) when is_atom(Name) andalso is_atom(Node) -
 %% @doc
 %% Creates a producer stage from a list.
 %% @end
--spec from_list([any()]) -> gen_server:on_start().
+-spec from_list([any()]) -> gen_server:start_ret().
 from_list(List) ->
     from_list(List, []).
 
@@ -1474,7 +1505,7 @@ from_list(List) ->
 %%   - link: boolean() - whether to link the process (default: true)
 %%   - Other standard gen_stage options
 %% @end
--spec from_list([any()], proplists:proplist()) -> gen_server:on_start().
+-spec from_list([any()], proplists:proplist()) -> gen_server:start_ret().
 from_list(List, Opts) when is_list(List) ->
     {Link, NewOpts} = case proplists:get_value(link, Opts, true) of
         true -> {true, proplists:delete(link, Opts)};
@@ -1490,7 +1521,7 @@ from_list(List, Opts) when is_list(List) ->
 %% Creates a producer stage from a generator function.
 %% The function should return {value, Item} for each item or 'done' when finished.
 %% @end
--spec from_fun(function()) -> gen_server:on_start().
+-spec from_fun(function()) -> gen_server:start_ret().
 from_fun(Fun) ->
     from_fun(Fun, []).
 
@@ -1502,7 +1533,7 @@ from_fun(Fun) ->
 %%   - link: boolean() - whether to link the process (default: true)
 %%   - Other standard gen_stage options
 %% @end
--spec from_fun(function(), proplists:proplist()) -> gen_server:on_start().
+-spec from_fun(function(), proplists:proplist()) -> gen_server:start_ret().
 from_fun(Fun, Opts) when is_function(Fun) ->
     {Link, NewOpts} = case proplists:get_value(link, Opts, true) of
         true -> {true, proplists:delete(link, Opts)};
@@ -1511,8 +1542,45 @@ from_fun(Fun, Opts) when is_function(Fun) ->
     
     case Link of
         true -> gen_stage_list_producer:start_link(Fun, NewOpts);
-        false -> 
-            %% For now, only support linked processes
-            gen_stage_list_producer:start_link(Fun, NewOpts)
+        false -> gen_stage_list_producer:start(Fun, NewOpts)
     end.
+
+%% @doc
+%% Subscribes the current process to the given producers and delivers
+%% their events to this process' mailbox, like Elixir's `GenStage.stream/1`.
+%%
+%% `Subscriptions' is a list of producers or `{Producer, Opts}' tuples,
+%% where `Opts' are the same options as `sync_subscribe/2' (`max_demand',
+%% `min_demand', `cancel', ...).
+%%
+%% Once subscribed, the caller's mailbox receives:
+%%
+%%   * `{'$gen_consumer', {Producer, {MonitorRef, InnerRef}}, Events}`
+%%     - a batch of events from `Producer'. Use the
+%%     `{Producer, {MonitorRef, InnerRef}}` tuple as the `From' to call
+%%     `ask/3' and `cancel/3'.
+%%   * `{'$gen_consumer', {Producer, {MonitorRef, InnerRef}},
+%%     {cancel, Reason}}` - the producer cancelled the subscription.
+%%   * `{MonitorRef, {down, InnerRef, Reason}}` - a producer went down.
+%%
+%% The caller is responsible for calling `close/1' with the returned
+%% descriptor when done; the subscriptions are then cancelled and the
+%% helper process is killed. If the caller exits before closing, the
+%% helper process exits with it and producers clean up via monitoring.
+%%
+%% Options:
+%%   - demand: forward | accumulate - the demand mode set on each
+%%     producer after subscription. Defaults to forward.
+%%   - producers: [stage()] - the processes to set the demand mode on
+%%     after subscription. Defaults to the subscribed producers.
+%% @end
+-spec stream([stage() | {stage(), subscription_options()}]) ->
+    {ok, gen_stage_stream:stream()}.
+stream(Subscriptions) ->
+    stream(Subscriptions, []).
+
+-spec stream([stage() | {stage(), subscription_options()}], [{atom(), any()}]) ->
+    {ok, gen_stage_stream:stream()}.
+stream(Subscriptions, Opts) when is_list(Subscriptions), is_list(Opts) ->
+    gen_stage_stream:subscribe(Subscriptions, Opts).
 

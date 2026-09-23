@@ -49,11 +49,11 @@ hash(Event, Range) ->
 info(Msg, {Tag, Hash, Waiting, Pending, Partitions, References, Infos}) ->
     Info = make_ref(),
     {Partitions1, Queued} =
-    lists:foldl(
+    maps:fold(
       fun
-          ({Partition, {Pid, Ref, Queue}}, {PartitionsAcc, QueuedAcc}) when not is_integer(Queue) ->
+          (Partition, {Pid, Ref, Queue}, {PartitionsAcc, QueuedAcc}) when not is_integer(Queue) ->
               {maps:put(Partition, {Pid, Ref, queue:in({Tag, Info}, Queue)}, PartitionsAcc), [Partition | QueuedAcc]};
-         (_, {PartitionsAcc, QueuedAcc}) ->
+         (_, _, {PartitionsAcc, QueuedAcc}) ->
               {PartitionsAcc, QueuedAcc}
       end, {Partitions, []}, Partitions),
     Infos1 =
@@ -69,14 +69,17 @@ info(Msg, {Tag, Hash, Waiting, Pending, Partitions, References, Infos}) ->
 subscribe(Opts, {Pid, Ref}, {Tag, Hash, Waiting, Pending, Partitions, References, Infos}) ->
     Partition = proplists:get_value(partition, Opts),
     case Partitions of
-        #{Partition := {undefined, undefined, DemandOrQueue}} ->
+        #{Partition := {undefined, undefined, DemandOrQueue}} when Partition =/= undefined ->
             Partitions1 = maps:put(Partition, {Pid, Ref, DemandOrQueue}, Partitions),
             References1 = maps:put(Ref, Partition, References),
             {ok, 0, {Tag, Hash, Waiting, Pending, Partitions1, References1, Infos}};
-        #{Partition := {Pid, _, _}} ->
-            throw({badarg, partition_dup});
+        #{Partition := {Pid, _, _}} when Partition =/= undefined ->
+            throw({badarg, iolist_to_binary(io_lib:format("the partition ~p is already taken by ~p", [Partition, Pid]))});
         _ when Partition =:= undefined ->
-            throw({badarg, partition_not_found})
+            throw({badarg, "the partition option is required when subscribing to a producer with partition dispatcher"});
+        _ ->
+            Keys = maps:keys(Partitions),
+            throw({badarg, iolist_to_binary(io_lib:format(":partition must be one of ~p, got: ~p", [Keys, Partition]))})
     end.
 
 cancel({_, Ref}, {Tag, Hash, Waiting, Pending, Partitions, References, Infos}) ->

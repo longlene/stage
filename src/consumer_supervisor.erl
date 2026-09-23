@@ -25,22 +25,19 @@
          start_link/4,
          start_child/2,
          terminate_child/2,
-         wait_children/6,
          which_children/1,
-         count_children/1,
-         start_child/3,
-         save_child/5
+         count_children/1
         ]).
 
 %% gen_stage callbacks
--export([init/1, handle_subscribe/4, handle_cancel/3, handle_events/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_subscribe/4, handle_cancel/3, handle_events/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, format_status/2]).
 
 %% Options used by the `start*` functions
 -type option() ::
 {registry, atom()}
 | {strategy, supervisor:strategy()}
 | {max_restarts, non_neg_integer()}
-| {max_records, non_neg_integer()}
+| {max_seconds, non_neg_integer()}
 | {subscribe_to, [gen_stage:stage() | {gen_stage:stage(), [{atom(), any()}]}]}.
 
 %% Callback invoked to start the supervisor and during hot code upgrades.
@@ -78,29 +75,56 @@
 | {via, Module :: module(), Name :: any()}
 | pid().
 
-%% @doc Starts a supervisor with the given children.
+%% @doc
+%% Starts a consumer supervisor.
 %%
-%% A strategy is required to be given as an option. Furthermore,
-%% the max_restarts, max_seconds, and subscribe_to values
-%% can be configured as described in the documentation for the
-%% init/1 callback.
+%% With `{Mod, Args}' style arguments: starts a supervisor module with
+%% the given `Args'. The `init/1' callback of the given module is
+%% invoked with `Args' passed to it and must return a supervision
+%% specification as described in the documentation for the `init/1'
+%% callback.
 %%
-%% The options can also be used to register a supervisor name.
-%% The supported values are described under the "Name Registration"
-%% section in the gen_server module docs.
-%% The child processes specified in children will be started by appending
-%% the event to process to the existing function arguments in the child specification.
+%% With a list of children: starts a supervisor with the given
+%% `Children'. A `:strategy' option is required. Furthermore, the
+%% `:max_restarts', `:max_seconds', and `:subscribe_to' values can be
+%% configured as described in the documentation for the `init/1'
+%% callback. The child processes specified in `Children' will be
+%% started by appending the event to process to the existing function
+%% arguments in the child specification.
+%%
+%% Unlike Elixir, this Erlang API has no `:name' option here: Erlang's
+%% `gen_server:start_link/3' (which this delegates to) never registers a
+%% name. To start a named supervisor, use `start_link/4', which takes the
+%% name explicitly as its first argument (mirroring `gen_server:start_link/4').
 %%
 %% Note that the consumer supervisor is linked to the parent process
 %% and will exit not only on crashes but also if the parent process
 %% exits with normal reason.
--spec start_link(module(), any()) -> supervisor:startlink_ret().
-start_link(Mod, Args) ->
+%% @end
+-spec start_link(module() | [supervisor:child_spec()], any()) -> supervisor:startlink_ret().
+start_link(Children, Opts) when is_list(Children) ->
+    {SupOpts, StartOpts} = split_sup_opts(Opts),
+    gen_stage:start_link(?MODULE, {consumer_supervisor_default, {Children, SupOpts}}, StartOpts);
+start_link(Mod, Args) when is_atom(Mod) ->
     gen_stage:start_link(?MODULE, {Mod, Args}, []).
 
--spec start_link(term(), module(), any(), [option()]) -> supervisor:startlink_ret().
+%% @doc
+%% Starts a named consumer supervisor module with the given `Args'.
+%%
+%% `Name' registers the supervisor as described under the "Name
+%% Registration" section in the `gen_server' module docs (`{local, atom()}',
+%% `{global, term()}', or `{via, module(), term()}'). This is the Erlang
+%% equivalent of passing `name: ...' to Elixir's `ConsumerSupervisor.start_link/3'.
+%% @end
+-spec start_link({local, atom()} | {global, term()} | {via, module(), term()},
+                  module(), any(), [option()]) -> supervisor:startlink_ret().
 start_link(Name, Mod, Args, Opts) ->
     gen_stage:start_link(Name, ?MODULE, {Mod, Args}, Opts).
+
+%% @private
+split_sup_opts(Opts) ->
+    SupKeys = [strategy, max_restarts, max_seconds, subscribe_to],
+    lists:partition(fun({K, _}) -> lists:member(K, SupKeys) end, Opts).
 
 %% @doc Starts a child in the consumer supervisor.
 %%
@@ -148,12 +172,17 @@ init({Mod, Args}) ->
 
     case Mod:init(Args) of
         {ok, Children, Opts} ->
-            State = #state{mod = Mod, args = Args},
-            case init(State, Children, Opts) of
-                {ok, NewState, NewOpts} ->
-                    {consumer, NewState, NewOpts};
+            case validate_specs(Children) of
+                ok ->
+                    State = #state{mod = Mod, args = Args},
+                    case init(State, Children, Opts) of
+                        {ok, NewState, NewOpts} ->
+                            {consumer, NewState, NewOpts};
+                        {error, Msg} ->
+                            {stop, {bad_opts, Msg}}
+                    end;
                 {error, Msg} ->
-                    {stop, {bad_opts, Msg}}
+                    {stop, {bad_specs, Msg}}
             end;
         ignore ->
             ignore;
@@ -165,21 +194,69 @@ init(State, [Child], Opts) when is_list(Opts) ->
     Strategy = proplists:get_value(strategy, Opts),
     MaxRestarts = proplists:get_value(max_restarts, Opts, 3),
     MaxSeconds = proplists:get_value(max_seconds, Opts, 5),
-    NewOpts =
-        lists:foldl(
-            fun(Key, Acc) ->
-                    proplists:delete(Key, Acc)
-            end, Opts, [strategy, max_restarts, max_seconds, max_demand, min_demand]),
     Template = normalize_template(Child),
-    NewState = State#state{
-                 template = Template,
-                 strategy = Strategy,
-                 max_restarts = MaxRestarts,
-                 max_seconds = MaxSeconds
-                },
-    {ok, NewState, NewOpts};
-init(_State, [_], _Opts) ->
+    case {validate_strategy(Strategy),
+          validate_restarts(MaxRestarts),
+          validate_seconds(MaxSeconds),
+          validate_template(Template)} of
+        {ok, ok, ok, ok} ->
+            NewOpts =
+                lists:foldl(
+                    fun(Key, Acc) ->
+                            proplists:delete(Key, Acc)
+                    end, Opts, [strategy, max_restarts, max_seconds, max_demand, min_demand]),
+            NewState = State#state{
+                         template = Template,
+                         strategy = Strategy,
+                         max_restarts = MaxRestarts,
+                         max_seconds = MaxSeconds
+                        },
+            {ok, NewState, NewOpts};
+        {{error, Reason}, _, _, _} ->
+            {error, Reason};
+        {_, {error, Reason}, _, _} ->
+            {error, Reason};
+        {_, _, {error, Reason}, _} ->
+            {error, Reason};
+        {_, _, _, {error, Reason}} ->
+            {error, Reason}
+    end;
+init(_State, _Children, _Opts) ->
     {error, "supervisor's init expects a list as options"}.
+
+%% @private
+validate_specs([Child]) ->
+    case supervisor:check_childspecs([Child]) of
+        ok -> ok;
+        {error, Reason} -> {error, Reason}
+    end;
+validate_specs(_Children) ->
+    {error, "consumer supervisor expects a list with a single item as a template"}.
+
+%% @private
+validate_strategy(one_for_one) -> ok;
+validate_strategy(undefined) ->
+    {error, "supervisor expects a strategy to be given"};
+validate_strategy(_) ->
+    {error, "unknown supervision strategy for consumer supervisor"}.
+
+%% @private
+validate_restarts(MaxRestarts) when is_integer(MaxRestarts) -> ok;
+validate_restarts(_) ->
+    {error, "max_restarts must be an integer"}.
+
+%% @private
+validate_seconds(MaxSeconds) when is_integer(MaxSeconds) -> ok;
+validate_seconds(_) ->
+    {error, "max_seconds must be an integer"}.
+
+%% @private
+validate_template({_, _, permanent, _, _, _}) ->
+    {error, "a child specification with :restart set to :permanent is not supported in "
+            "ConsumerSupervisor. Set the :restart option either to :temporary, so "
+            "children spawned from events are never restarted, or :transient, so "
+            "they are restarted only on abnormal exits"};
+validate_template({_, _, _, _, _, _}) -> ok.
 
 handle_subscribe(producer, Opts, {_, Ref} = From, #state{producers = Producers} = State) ->
     Max = proplists:get_value(max_demand, Opts, 1000),
@@ -208,19 +285,19 @@ start_events([Extra | Extras], From, Child, Errors, Acc, State) ->
             NewAcc = Acc#{Pid => [Ref]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid, _} ->
-            NewAcc = Acc#{Pid => [Ref | Args]},
+            NewAcc = Acc#{Pid => [Ref | NewArgs]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid} when Restart =:= temporary ->
             NewAcc = Acc#{Pid => [Ref]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         {ok, Pid} ->
-            NewAcc = Acc#{Pid => [Ref | Args]},
+            NewAcc = Acc#{Pid => [Ref | NewArgs]},
             start_events(Extras, From, Child, Errors, NewAcc, State);
         ignore ->
             start_events(Extras, From, Child, Errors + 1, Acc, State);
         {error, Reason} ->
             error_logger:error_msg("consumer_supervisor failed to start child from: ~tp with reason: ~tp~n", [From, Reason]),
-            report_error(start_error, Reason, undefined, Args, Child, State),
+            report_error(start_error, Reason, undefined, NewArgs, Child, State),
             start_events(Extras, From, Child, Errors + 1, Acc, State)
     end;
 start_events([], _, _, Errors, Acc, _) ->
@@ -254,16 +331,13 @@ handle_call(which_children, _From, State) ->
     #state{children = Children, template = Child} = State,
     {_, _, _, _, Type, Mods} = Child,
     Reply =
-    maps:map(
-      fun(Pid, Args) ->
-              MaybePid =
-              case Args of
-                  {restarting, _} -> restarting;
-                  _ -> Pid
-              end,
-              {undefined, MaybePid, Type, Mods}
-      end, Children),
-    {reply, maps:to_list(Reply), [], State};
+    [{undefined, MaybePid, Type, Mods} ||
+        {Pid, Args} <- maps:to_list(Children),
+        MaybePid <- [case Args of
+                         {restarting, _} -> restarting;
+                         _ -> Pid
+                     end]],
+    {reply, Reply, [], State};
 handle_call(count_children, _From, State) ->
     #state{children = Children, template = Child, restarting = Restarting} = State,
     {_, _, _, _, Type, _} = Child,
@@ -271,7 +345,7 @@ handle_call(count_children, _From, State) ->
     Active = Specs - Restarting,
     Reply =
     case Type of
-        supervisor -> #{specs => 1, active => Active, workers => 0, supervisrs => Specs};
+        supervisor -> #{specs => 1, active => Active, workers => 0, supervisors => Specs};
         worker -> #{specs => 1, active => Active, workers => Specs, supervisors => 0}
     end,
     {reply, Reply, [], State};
@@ -351,14 +425,37 @@ handle_info(Msg, State) ->
 code_change(_, #state{mod = Mod, args = Args} = State, _) ->
     case Mod:init(Args) of
         {ok, Children, Opts} ->
-            case init(State, Children, Opts) of
-                {ok, NewState, _} -> {ok, NewState};
-                {error, Reason} -> {error, {bad_opts, Reason}}
+            case validate_specs(Children) of
+                ok ->
+                    case init(State, Children, Opts) of
+                        {ok, NewState, _} -> {ok, NewState};
+                        {error, Reason} -> {error, {bad_opts, Reason}}
+                    end;
+                {error, Reason} ->
+                    {error, {bad_specs, Reason}}
             end;
         ignore ->
             {ok, State};
         Err ->
             Err
+    end.
+
+%% Optional `format_status/2' callback (mirrors `gen_server:format_status/2').
+%% consumer_supervisor is itself a `gen_stage' callback module, so this is
+%% invoked by `gen_stage:format_status/1' (see gen_stage.erl), which is the
+%% function OTP actually calls and which normalizes/wraps the result.
+format_status(Opt, [_PDict, State]) ->
+    #state{mod = Mod} = State,
+    Default = [{data, [{"State", State}]}, {supervisor, [{"Callback", Mod}]}],
+    case erlang:function_exported(Mod, format_status, 2) of
+        true ->
+            try Mod:format_status(Opt, [get(), State]) of
+                Result -> Result
+            catch
+                _:_ -> Default
+            end;
+        false ->
+            Default
     end.
 
 terminate(_, #state{children = Children} = State) ->
@@ -453,7 +550,7 @@ wait_children(Restart, Shutdown, Pids, Size, Timer, Stacks) ->
             NewStacks = maps:put(Pid, Reason, Stacks),
             wait_children(Restart, Shutdown, maps:remove(Pid, Pids), Size - 1, Timer, NewStacks);
         {timeout, Timer, kill} ->
-            [exit(Pid, kill) || {Pid, _} <- Pids],
+            [exit(Pid, kill) || Pid <- maps:keys(Pids)],
             wait_children(Restart, Shutdown, Pids, Size, undefined, Stacks)
     end.
 
@@ -548,6 +645,7 @@ restart_child(Pid, #state{children = Children} = State) ->
 report_error(Error, Reason, Pid, Args, Child, _State) ->
     error_logger:error_report([
                             supervisor_report,
+                            {supervisor, gen_stage_utils:self_name()},
                             {errorContext, Error},
                             {reason, Reason},
                             {offender, extract_child(Pid, Args, Child)}

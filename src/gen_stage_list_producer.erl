@@ -126,36 +126,23 @@ get_list_events([H|T], Events, Demand, Acc) ->
 
 %% @private
 create_continuation(EnumFun) ->
-    fun(Acc) ->
-        case Acc of
-            {cont, {Events, Demand}} when Demand > 0 ->
-                try
-                    %% Try to get Demand number of elements
-                    get_events(EnumFun, Events, Demand, [])
-                catch
-                    error:function_clause ->
-                        {done, {Events, 0}};
-                    _:_ ->
-                        {done, {Events, 0}}
-                end;
-            _ ->
-                {done, {[], 0}}
-        end
+    fun({cont, {Events, Demand}}) when Demand > 0 ->
+            get_events(EnumFun, Events, Demand, []);
+       (_) ->
+            {done, {[], 0}}
     end.
 
 %% @private
-get_events(_EnumFun, Events, 0, Acc) ->
-    {suspended, {lists:reverse(Acc) ++ Events, 0}, done};
+%% Exceptions raised by EnumFun are not caught: like Elixir's
+%% GenStage.Streamer, the producer crashes instead of silently
+%% treating the error as the end of the stream.
+get_events(EnumFun, Events, 0, Acc) ->
+    {suspended, {lists:reverse(Acc) ++ Events, 0}, create_continuation(EnumFun)};
 get_events(EnumFun, Events, Demand, Acc) ->
-    try
-        case EnumFun() of
-            {value, Value} ->
-                get_events(EnumFun, Events, Demand - 1, [Value | Acc]);
-            done ->
-                {done, {lists:reverse(Acc) ++ Events, 0}}
-        end
-    catch
-        _:_ ->
+    case EnumFun() of
+        {value, Value} ->
+            get_events(EnumFun, Events, Demand - 1, [Value | Acc]);
+        done ->
             {done, {lists:reverse(Acc) ++ Events, 0}}
     end.
 
